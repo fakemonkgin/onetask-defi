@@ -29,6 +29,7 @@ pnpm-debug.log*
 packages/contracts/cache/
 packages/contracts/out/
 packages/contracts/broadcast/
+packages/contracts/lib/
 
 # Temporary files
 tmp/
