@@ -1,10 +1,10 @@
 import cors from "@fastify/cors";
 import Fastify from "fastify";
-import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
 import { environment } from "./config.js";
 import { databasePool } from "./database.js";
+import { TaskPreviewRepository } from "./repositories/task-preview-repository.js";
 
 const taskPreviewInputSchema = z.object({
   intent: z
@@ -14,12 +14,22 @@ const taskPreviewInputSchema = z.object({
     .max(500, "Intent must not exceed 500 characters."),
 });
 
+const TASK_PREVIEW_PIPELINE = [
+  "discover-agents",
+  "request-x402-quotes",
+  "collect-evidence",
+  "await-user-authorization",
+] as const;
+
 const PREVIEW_TTL_MS = 10 * 60 * 1000;
 
 export async function buildApp() {
   const app = Fastify({
     logger: true,
   });
+
+  const taskPreviewRepository =
+    new TaskPreviewRepository(databasePool);
 
   await app.register(cors, {
     origin: environment.WEB_ORIGIN,
@@ -53,26 +63,27 @@ export async function buildApp() {
       });
     }
 
-    const createdAt = new Date();
     const expiresAt = new Date(
-      createdAt.getTime() + PREVIEW_TTL_MS,
+      Date.now() + PREVIEW_TTL_MS,
     );
 
-    return reply.code(200).send({
-      preview: {
-        id: randomUUID(),
+    const preview =
+      await taskPreviewRepository.create({
         intent: parsedInput.data.intent,
-        network: "anvil",
-        mode: "simulation",
-        createdAt: createdAt.toISOString(),
-        expiresAt: expiresAt.toISOString(),
+        pipeline: TASK_PREVIEW_PIPELINE,
+        expiresAt,
+      });
+
+    return reply.code(201).send({
+      preview: {
+        id: preview.id,
+        intent: preview.intent,
+        network: preview.network,
+        mode: preview.mode,
+        createdAt: preview.createdAt.toISOString(),
+        expiresAt: preview.expiresAt.toISOString(),
       },
-      pipeline: [
-        "discover-agents",
-        "request-x402-quotes",
-        "collect-evidence",
-        "await-user-authorization",
-      ],
+      pipeline: preview.pipeline,
     });
   });
 
