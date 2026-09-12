@@ -1,14 +1,12 @@
 import { buildApp } from "./app.js";
-
-const port = Number.parseInt(process.env.PORT ?? "3001", 10);
-const host = process.env.HOST ?? "127.0.0.1";
+import { environment } from "./config.js";
 
 const app = await buildApp();
 
 try {
   await app.listen({
-    port,
-    host,
+    port: environment.PORT,
+    host: environment.HOST,
   });
 } catch (error) {
   app.log.error(error);

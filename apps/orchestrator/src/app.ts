@@ -3,6 +3,9 @@ import Fastify from "fastify";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
+import { environment } from "./config.js";
+import { databasePool } from "./database.js";
+
 const taskPreviewInputSchema = z.object({
   intent: z
     .string()
@@ -19,30 +22,41 @@ export async function buildApp() {
   });
 
   await app.register(cors, {
-    origin: "http://localhost:3000",
+    origin: environment.WEB_ORIGIN,
     methods: ["GET", "POST"],
   });
 
   app.get("/health", async () => {
+    const databaseResult =
+      await databasePool.query<{ database: string }>(
+        "SELECT current_database() AS database",
+      );
+
     return {
       status: "ok",
       service: "onetask-orchestrator",
+      database:
+        databaseResult.rows[0]?.database ?? "unknown",
     };
   });
 
   app.post("/v1/tasks/preview", async (request, reply) => {
-    const parsedInput = taskPreviewInputSchema.safeParse(request.body);
+    const parsedInput =
+      taskPreviewInputSchema.safeParse(request.body);
 
     if (!parsedInput.success) {
       return reply.code(400).send({
         code: "INVALID_TASK_INTENT",
         message: "The submitted DeFi intent is invalid.",
-        fields: parsedInput.error.flatten().fieldErrors,
+        fields:
+          parsedInput.error.flatten().fieldErrors,
       });
     }
 
     const createdAt = new Date();
-    const expiresAt = new Date(createdAt.getTime() + PREVIEW_TTL_MS);
+    const expiresAt = new Date(
+      createdAt.getTime() + PREVIEW_TTL_MS,
+    );
 
     return reply.code(200).send({
       preview: {
@@ -60,6 +74,10 @@ export async function buildApp() {
         "await-user-authorization",
       ],
     });
+  });
+
+  app.addHook("onClose", async () => {
+    await databasePool.end();
   });
 
   return app;
