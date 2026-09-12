@@ -1,0 +1,23 @@
+{
+  "name": "onetask-defi",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A consumer-facing multi-agent DeFi task assistant powered by x402 and ERC-8004.",
+  "workspaces": [
+    "apps/*",
+    "services/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:web": "npm run dev --workspace=@onetask/web",
+    "dev:orchestrator": "npm run dev --workspace=@onetask/orchestrator",
+    "build:web": "npm run build --workspace=@onetask/web",
+    "test:contracts": "cd packages/contracts && forge test",
+    "format:contracts": "cd packages/contracts && forge fmt"
+  },
+  "engines": {
+    "node": ">=20.9.0"
+  },
+  "packageManager": "npm@10.8.2",
+  "license": "MIT"
+}
