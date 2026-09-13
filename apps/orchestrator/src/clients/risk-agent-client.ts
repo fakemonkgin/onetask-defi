@@ -10,6 +10,11 @@ import { z } from "zod";
 
 import { environment } from "../config.js";
 import {
+  discoverRiskAgent,
+  type RiskAgentDiscovery,
+  RiskAgentDiscoveryError,
+} from "../erc8004/risk-agent-discovery.js";
+import {
   fetchWithX402Payment,
   x402HttpClient,
 } from "../payments/x402-buyer.js";
@@ -30,7 +35,8 @@ const bytes32Schema = z
 const evmAddressSchema = z
   .string()
   .refine(
-    (value) => isAddress(value),
+    (value) =>
+      isAddress(value),
     "Expected a valid EVM address.",
   )
   .transform((value) =>
@@ -130,9 +136,14 @@ const riskEvaluationRequestSchema =
   });
 
 const riskCheckSchema = z.object({
-  id: z.string().min(1),
-  label: z.string().min(1),
-  passed: z.boolean(),
+  id:
+    z.string().min(1),
+
+  label:
+    z.string().min(1),
+
+  passed:
+    z.boolean(),
 
   weight: z
     .number()
@@ -234,6 +245,9 @@ export type X402PaymentReceipt = {
 };
 
 export type RiskEvaluationResult = {
+  agentDiscovery:
+    RiskAgentDiscovery;
+
   riskEvidence:
     RiskEvidence;
 
@@ -242,6 +256,7 @@ export type RiskEvaluationResult = {
 };
 
 export type RiskAgentClientErrorCode =
+  | "RISK_AGENT_DISCOVERY_FAILED"
   | "RISK_AGENT_UNAVAILABLE"
   | "RISK_AGENT_HTTP_ERROR"
   | "X402_PAYMENT_FAILED"
@@ -266,19 +281,56 @@ export class RiskAgentClientError
   }
 }
 
-function createRiskEvaluationUrl() {
-  const baseUrl =
-    environment
-      .RISK_AGENT_URL
-      .endsWith("/")
-      ? environment
-          .RISK_AGENT_URL
-      : `${environment.RISK_AGENT_URL}/`;
+async function getVerifiedAgentDiscovery():
+  Promise<RiskAgentDiscovery> {
+  try {
+    const discovery =
+      await discoverRiskAgent();
 
-  return new URL(
-    "v1/risk/evaluate",
-    baseUrl,
-  );
+    const discoveredNetwork =
+      [
+        "eip155",
+        discovery.identity
+          .chainId.toString(),
+      ].join(":");
+
+    if (
+      discoveredNetwork !==
+      environment.X402_NETWORK
+    ) {
+      throw new RiskAgentClientError(
+        "RISK_AGENT_DISCOVERY_FAILED",
+
+        "The ERC-8004 Agent identity and x402 payment network do not match.",
+      );
+    }
+
+    return discovery;
+  } catch (error) {
+    if (
+      error instanceof
+      RiskAgentClientError
+    ) {
+      throw error;
+    }
+
+    if (
+      error instanceof
+      RiskAgentDiscoveryError
+    ) {
+      throw new RiskAgentClientError(
+        "RISK_AGENT_DISCOVERY_FAILED",
+
+        error.message,
+      );
+    }
+
+    throw new RiskAgentClientError(
+      "RISK_AGENT_DISCOVERY_FAILED",
+
+      "The Risk Agent could not be discovered through ERC-8004.",
+    );
+  }
 }
 
 function isNetworkFailure(
@@ -317,7 +369,8 @@ function readStringProperty(
     value as Record<string, unknown>
   )[propertyName];
 
-  return typeof propertyValue === "string"
+  return typeof propertyValue ===
+    "string"
     ? propertyValue
     : undefined;
 }
@@ -407,12 +460,12 @@ async function throwForX402Failure(
 
   const transactionMessage =
     failureDetails.transaction
-      ? ` Broadcast transaction: ${failureDetails.transaction}.`
+      ? `Broadcast transaction: ${failureDetails.transaction}.`
       : "";
 
   const networkMessage =
     failureDetails.network
-      ? ` Network: ${failureDetails.network}.`
+      ? `Network: ${failureDetails.network}.`
       : "";
 
   if (
@@ -556,7 +609,7 @@ export async function evaluateMigrationRisk(
   /*
    * Validate and normalize the exact object
    * that will be sent and hashed before any
-   * x402 payment is attempted.
+   * discovery or x402 payment is attempted.
    */
   const riskEvaluationRequest =
     prepareRiskEvaluationRequest(
@@ -571,6 +624,20 @@ export async function evaluateMigrationRisk(
   const expectedPlanEvidenceHash =
     riskEvaluationRequest
       .plan.evidenceHash;
+
+  /*
+   * Discover and verify the Agent before
+   * allowing the x402 client to create a
+   * payment authorization.
+   */
+  const agentDiscovery =
+    await getVerifiedAgentDiscovery();
+
+  const riskEvaluationUrl =
+    new URL(
+      agentDiscovery
+        .service.endpoint,
+    );
 
   const abortController =
     new AbortController();
@@ -590,7 +657,7 @@ export async function evaluateMigrationRisk(
     try {
       response =
         await fetchWithX402Payment(
-          createRiskEvaluationUrl(),
+          riskEvaluationUrl,
           {
             method: "POST",
 
@@ -704,6 +771,11 @@ export async function evaluateMigrationRisk(
       parsedResponse.data
         .evidence;
 
+    /*
+     * The expected signer comes from the
+     * verified ERC-8004 agentWallet rather
+     * than directly from a static endpoint.
+     */
     const verificationResult =
       await verifyRiskEvidence({
         evidence:
@@ -714,8 +786,9 @@ export async function evaluateMigrationRisk(
         expectedPlanEvidenceHash,
 
         expectedSigner:
-          environment
-            .RISK_AGENT_SIGNER_ADDRESS,
+          agentDiscovery
+            .identity
+            .agentWallet,
       });
 
     if (
@@ -737,6 +810,7 @@ export async function evaluateMigrationRisk(
     }
 
     return {
+      agentDiscovery,
       riskEvidence,
       x402Payment,
     };

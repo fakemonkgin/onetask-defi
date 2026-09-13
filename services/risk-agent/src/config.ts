@@ -33,6 +33,13 @@ const privateKeySchema = z
     (value) => value as Hex,
   );
 
+const unsignedIntegerStringSchema = z
+  .string()
+  .regex(
+    /^(0|[1-9][0-9]*)$/,
+    "Expected an unsigned integer string.",
+  );
+
 const x402PriceSchema = z
   .string()
   .regex(
@@ -117,6 +124,22 @@ const environmentSchema = z
 
     AGENT_SIGNER_PRIVATE_KEY:
       privateKeySchema,
+
+    BASE_SEPOLIA_RPC_URL: z
+      .string()
+      .url()
+      .default(
+        "https://sepolia.base.org",
+      ),
+
+    ERC8004_IDENTITY_REGISTRY_ADDRESS:
+      evmAddressSchema.default(
+        "0x8004A818BFB912233c491871b3d84c89A494BD9e",
+      ),
+
+    ERC8004_AGENT_ID:
+      unsignedIntegerStringSchema
+        .optional(),
   })
   .superRefine(
     (values, context) => {

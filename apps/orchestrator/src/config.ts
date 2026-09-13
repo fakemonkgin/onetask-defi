@@ -7,6 +7,11 @@ import {
 } from "viem";
 import { z } from "zod";
 
+import {
+  ERC8004_BASE_SEPOLIA_CHAIN_ID,
+  ERC8004_BASE_SEPOLIA_IDENTITY_REGISTRY_ADDRESS,
+} from "./erc8004/identity-registry.js";
+
 const evmAddressSchema = z
   .string()
   .refine(
@@ -32,6 +37,13 @@ const privateKeySchema = z
   .transform(
     (value) =>
       value as `0x${string}`,
+  );
+
+const unsignedIntegerStringSchema = z
+  .string()
+  .regex(
+    /^(0|[1-9][0-9]*)$/,
+    "Expected an unsigned integer string.",
   );
 
 const x402PaymentLimitSchema = z
@@ -126,6 +138,35 @@ const environmentSchema =
 
     RISK_AGENT_SIGNER_ADDRESS:
       evmAddressSchema,
+
+    ERC8004_RPC_URL: z
+      .string()
+      .url()
+      .default(
+        "https://sepolia.base.org",
+      ),
+
+    ERC8004_CHAIN_ID: z.coerce
+      .number()
+      .int()
+      .refine(
+        (value) =>
+          value ===
+          ERC8004_BASE_SEPOLIA_CHAIN_ID,
+
+        `ERC8004_CHAIN_ID must be ${ERC8004_BASE_SEPOLIA_CHAIN_ID}.`,
+      )
+      .default(
+        ERC8004_BASE_SEPOLIA_CHAIN_ID,
+      ),
+
+    ERC8004_IDENTITY_REGISTRY_ADDRESS:
+      evmAddressSchema.default(
+        ERC8004_BASE_SEPOLIA_IDENTITY_REGISTRY_ADDRESS,
+      ),
+
+    ERC8004_AGENT_ID:
+      unsignedIntegerStringSchema,
 
     X402_BUYER_PRIVATE_KEY:
       privateKeySchema,

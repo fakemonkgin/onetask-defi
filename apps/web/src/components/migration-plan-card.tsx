@@ -16,7 +16,10 @@ import {
   type MigrationExecutionPhase,
   useVaultMigrationExecution,
 } from "@/hooks/use-vault-migration-execution";
-import { createMigrationPlan } from "@/lib/orchestrator-client";
+import {
+  type AgentDiscovery,
+  createMigrationPlan,
+} from "@/lib/orchestrator-client";
 import { anvilChain } from "@/lib/wagmi-config";
 
 const DEFAULT_MAX_LOSS_BPS = 50;
@@ -72,6 +75,12 @@ type DetailRowProps = {
 type TransactionHashProps = {
   label: string;
   hash: string;
+};
+
+type AgentIdentityPanelProps = {
+  agentDiscovery: AgentDiscovery;
+  x402Network: string;
+  evidenceSigned: boolean;
 };
 
 function trimFormattedUnits(
@@ -181,6 +190,313 @@ function TransactionHash({
   );
 }
 
+function AgentIdentityPanel({
+  agentDiscovery,
+  x402Network,
+  evidenceSigned,
+}: AgentIdentityPanelProps) {
+  const expectedPaymentNetwork =
+    `eip155:${agentDiscovery.identity.chainId}`;
+
+  const paymentNetworkMatches =
+    x402Network ===
+    expectedPaymentNetwork;
+
+  return (
+    <section
+      className="rounded-2xl border border-violet-300 bg-violet-50/70 p-5 dark:border-violet-800 dark:bg-violet-950/30"
+      aria-label="ERC-8004 Agent identity"
+    >
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wider text-violet-700 dark:text-violet-400">
+            ERC-8004 Agent discovery
+          </p>
+
+          <h4 className="mt-1 text-lg font-semibold">
+            Onchain identity verified
+          </h4>
+
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-600 dark:text-zinc-400">
+            The orchestrator discovered
+            this Risk Agent from the Base
+            Sepolia Identity Registry,
+            verified its owner and Agent
+            wallet, decoded its registered
+            metadata, and pinned the service
+            endpoint before allowing payment.
+          </p>
+        </div>
+
+        <span className="w-fit shrink-0 rounded-full bg-violet-700 px-3 py-1 text-xs font-semibold text-white">
+          Agent #
+          {agentDiscovery.identity.agentId}
+        </span>
+      </div>
+
+      <div className="mt-5 flex flex-wrap gap-2">
+        <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+          Registry verified
+        </span>
+
+        <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+          Registration active
+        </span>
+
+        <span className="rounded-full bg-violet-100 px-3 py-1 text-xs font-semibold text-violet-800 dark:bg-violet-950 dark:text-violet-300">
+          x402 advertised
+        </span>
+
+        <span
+          className={
+            paymentNetworkMatches
+              ? "rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
+              : "rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-red-800 dark:bg-red-950 dark:text-red-300"
+          }
+        >
+          {paymentNetworkMatches
+            ? "Payment network matched"
+            : "Payment network mismatch"}
+        </span>
+      </div>
+
+      <div className="mt-5 grid gap-4 lg:grid-cols-2">
+        <div className="rounded-xl border border-violet-100 bg-white p-4 dark:border-violet-900 dark:bg-zinc-950">
+          <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+            Onchain identity
+          </p>
+
+          <dl className="mt-4 space-y-3 text-sm">
+            <DetailRow label="Network">
+              <span className="font-mono">
+                Base Sepolia (
+                {
+                  agentDiscovery
+                    .identity.chainId
+                }
+                )
+              </span>
+            </DetailRow>
+
+            <DetailRow label="Agent ID">
+              <span className="font-mono">
+                #
+                {
+                  agentDiscovery
+                    .identity.agentId
+                }
+              </span>
+            </DetailRow>
+
+            <DetailRow label="Registry">
+              <span
+                className="font-mono"
+                title={
+                  agentDiscovery
+                    .identity.registry
+                }
+              >
+                {shortenAddress(
+                  agentDiscovery
+                    .identity.registry,
+                )}
+              </span>
+            </DetailRow>
+
+            <DetailRow label="Agent wallet">
+              <span
+                className="font-mono"
+                title={
+                  agentDiscovery
+                    .identity.agentWallet
+                }
+              >
+                {shortenAddress(
+                  agentDiscovery
+                    .identity.agentWallet,
+                )}
+              </span>
+            </DetailRow>
+
+            <DetailRow label="Owner">
+              <span
+                className="font-mono"
+                title={
+                  agentDiscovery
+                    .identity.owner
+                }
+              >
+                {shortenAddress(
+                  agentDiscovery
+                    .identity.owner,
+                )}
+              </span>
+            </DetailRow>
+
+            <DetailRow label="Read at block">
+              <span className="font-mono">
+                {
+                  agentDiscovery
+                    .identity
+                    .observedBlockNumber
+                }
+              </span>
+            </DetailRow>
+          </dl>
+        </div>
+
+        <div className="rounded-xl border border-violet-100 bg-white p-4 dark:border-violet-900 dark:bg-zinc-950">
+          <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+            Registered service
+          </p>
+
+          <dl className="mt-4 space-y-3 text-sm">
+            <DetailRow label="Agent name">
+              {
+                agentDiscovery
+                  .registration.name
+              }
+            </DetailRow>
+
+            <DetailRow label="Service">
+              {
+                agentDiscovery
+                  .service.name
+              }
+            </DetailRow>
+
+            <DetailRow label="Version">
+              <span className="font-mono">
+                {
+                  agentDiscovery
+                    .service.version
+                }
+              </span>
+            </DetailRow>
+
+            <DetailRow label="Active">
+              <span className="font-semibold text-emerald-700 dark:text-emerald-400">
+                Yes
+              </span>
+            </DetailRow>
+
+            <DetailRow label="x402 support">
+              <span className="font-semibold text-emerald-700 dark:text-emerald-400">
+                Yes
+              </span>
+            </DetailRow>
+
+            <DetailRow label="Evidence">
+              <span
+                className={
+                  evidenceSigned
+                    ? "font-semibold text-emerald-700 dark:text-emerald-400"
+                    : "font-semibold text-amber-700 dark:text-amber-400"
+                }
+              >
+                {evidenceSigned
+                  ? "EIP-712 signed"
+                  : "Unsigned"}
+              </span>
+            </DetailRow>
+          </dl>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        <div className="rounded-xl border border-violet-100 bg-white p-4 dark:border-violet-900 dark:bg-zinc-950">
+          <p className="text-xs text-zinc-500">
+            Verified service endpoint
+          </p>
+
+          <p className="mt-1 break-all font-mono text-xs">
+            {
+              agentDiscovery
+                .service.endpoint
+            }
+          </p>
+        </div>
+
+        <div className="rounded-xl border border-violet-100 bg-white p-4 dark:border-violet-900 dark:bg-zinc-950">
+          <p className="text-xs text-zinc-500">
+            Registration metadata hash
+          </p>
+
+          <p className="mt-1 break-all font-mono text-xs">
+            {
+              agentDiscovery
+                .registration.uriHash
+            }
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-4 rounded-xl border border-violet-200 bg-white p-4 dark:border-violet-800 dark:bg-zinc-950">
+        <p className="text-xs font-semibold uppercase tracking-wider text-violet-700 dark:text-violet-400">
+          Verifiable service chain
+        </p>
+
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="rounded-lg bg-violet-50 p-3 dark:bg-violet-950/40">
+            <p className="text-xs font-semibold">
+              1. ERC-8004
+            </p>
+
+            <p className="mt-1 text-xs text-zinc-500">
+              Identity discovered
+            </p>
+          </div>
+
+          <div className="rounded-lg bg-violet-50 p-3 dark:bg-violet-950/40">
+            <p className="text-xs font-semibold">
+              2. Service
+            </p>
+
+            <p className="mt-1 text-xs text-zinc-500">
+              Endpoint verified
+            </p>
+          </div>
+
+          <div className="rounded-lg bg-violet-50 p-3 dark:bg-violet-950/40">
+            <p className="text-xs font-semibold">
+              3. x402
+            </p>
+
+            <p className="mt-1 text-xs text-zinc-500">
+              Payment settled
+            </p>
+          </div>
+
+          <div className="rounded-lg bg-violet-50 p-3 dark:bg-violet-950/40">
+            <p className="text-xs font-semibold">
+              4. EIP-712
+            </p>
+
+            <p className="mt-1 text-xs text-zinc-500">
+              {evidenceSigned
+                ? "Evidence signed"
+                : "Signature missing"}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-4">
+        <p className="text-xs text-zinc-500">
+          Global Agent registry identifier
+        </p>
+
+        <p className="mt-1 break-all font-mono text-xs">
+          {
+            agentDiscovery
+              .identity.agentRegistry
+          }
+        </p>
+      </div>
+    </section>
+  );
+}
+
 export function MigrationPlanCard({
   user,
   assetSymbol,
@@ -209,6 +525,10 @@ export function MigrationPlanCard({
     migrationPlanMutation.data
       ?.migrationPlan;
 
+  const agentDiscovery =
+    migrationPlanMutation.data
+      ?.agentDiscovery;
+
   const riskEvidence =
     migrationPlanMutation.data
       ?.riskEvidence;
@@ -217,9 +537,25 @@ export function MigrationPlanCard({
     migrationPlanMutation.data
       ?.x402Payment;
 
+  const agentIdentityVerified =
+    agentDiscovery !== undefined &&
+    agentDiscovery.source ===
+      "erc8004-onchain" &&
+    agentDiscovery.identity.verified &&
+    agentDiscovery.registration.active &&
+    agentDiscovery.registration
+      .x402Support &&
+    agentDiscovery.service.name ===
+      "risk-evaluation" &&
+    x402Payment !== undefined &&
+    x402Payment.network ===
+      `eip155:${agentDiscovery.identity.chainId}`;
+
   const riskExecutionApproved =
     result !== undefined &&
+    agentIdentityVerified &&
     riskEvidence !== undefined &&
+    riskEvidence.signature !== null &&
     x402Payment !== undefined &&
     isRiskEvidenceExecutable(
       riskEvidence,
@@ -244,6 +580,8 @@ export function MigrationPlanCard({
   function executePlan() {
     if (
       !result ||
+      !agentDiscovery ||
+      !agentIdentityVerified ||
       !riskEvidence ||
       !x402Payment ||
       !riskExecutionApproved
@@ -277,12 +615,13 @@ export function MigrationPlanCard({
           </h3>
 
           <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-600 dark:text-zinc-400">
-            The orchestrator builds the
-            contract parameters, pays the
-            independent Risk Agent through
-            x402 on Base Sepolia, and accepts
-            the assessment only after payment
-            settlement.
+            The orchestrator discovers the
+            registered Risk Agent through
+            ERC-8004, verifies its onchain
+            identity, pays the registered
+            service through x402 on Base
+            Sepolia, and accepts only verified
+            signed evidence.
           </p>
         </div>
 
@@ -297,7 +636,7 @@ export function MigrationPlanCard({
           className="shrink-0 rounded-full bg-blue-700 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-40"
         >
           {migrationPlanMutation.isPending
-            ? "Paying & reviewing..."
+            ? "Discovering, paying & reviewing..."
             : result
               ? "Pay & regenerate plan"
               : "Pay & generate 0.5% plan"}
@@ -306,9 +645,11 @@ export function MigrationPlanCard({
 
       <div className="mt-5 rounded-2xl border border-blue-200 bg-white p-4 text-sm leading-6 text-zinc-600 dark:border-blue-900 dark:bg-zinc-950 dark:text-zinc-400">
         Generating or regenerating a plan
-        requests a new Risk Agent evaluation
-        and performs a new x402 payment using
-        Base Sepolia faucet-only test USDC.
+        performs a fresh ERC-8004 identity
+        lookup and requests a new Risk Agent
+        evaluation. It makes a new x402
+        payment using Base Sepolia
+        faucet-only test USDC.
       </div>
 
       {!executable &&
@@ -334,6 +675,7 @@ export function MigrationPlanCard({
       ) : null}
 
       {result &&
+      agentDiscovery &&
       riskEvidence &&
       x402Payment ? (
         <div
@@ -355,6 +697,14 @@ export function MigrationPlanCard({
             </span>
 
             <span className="rounded-full bg-violet-700 px-3 py-1 text-xs font-semibold text-white">
+              ERC-8004 Agent #
+              {
+                agentDiscovery
+                  .identity.agentId
+              }
+            </span>
+
+            <span className="rounded-full bg-violet-700 px-3 py-1 text-xs font-semibold text-white">
               x402 settled
             </span>
 
@@ -366,15 +716,15 @@ export function MigrationPlanCard({
               }
             >
               {riskExecutionApproved
-                ? "Risk Agent approved"
+                ? "Verified execution ready"
                 : "Execution blocked"}
             </span>
 
-            <span className="rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+            <span className="rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300">
               {riskEvidence.signature ===
               null
                 ? "Unsigned Agent evidence"
-                : "Signed Agent evidence"}
+                : "EIP-712 signed evidence"}
             </span>
           </div>
 
@@ -558,6 +908,19 @@ export function MigrationPlanCard({
             </div>
           </div>
 
+          <AgentIdentityPanel
+            agentDiscovery={
+              agentDiscovery
+            }
+            x402Network={
+              x402Payment.network
+            }
+            evidenceSigned={
+              riskEvidence.signature !==
+              null
+            }
+          />
+
           <RiskEvidencePanel
             riskEvidence={riskEvidence}
             planEvidenceHash={
@@ -618,12 +981,15 @@ export function MigrationPlanCard({
                 className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm leading-6 text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
                 role="alert"
               >
-                Execution is disabled
-                because the x402 payment is
-                not settled, the Risk Agent
-                rejected the plan, a policy
-                check failed, or the reviewed
-                plan hash does not match.
+                Execution is disabled because
+                the ERC-8004 identity is not
+                verified, the x402 payment is
+                not settled, the Agent
+                signature is missing, the Risk
+                Agent rejected the plan, a
+                policy check failed, or the
+                reviewed plan hash does not
+                match.
               </div>
             ) : null}
 
@@ -767,12 +1133,14 @@ export function MigrationPlanCard({
 
             <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
               Current limitation: the
-              Risk Agent assessment is
-              hash-bound, but the contract
-              does not yet verify an
-              ERC-8004 Agent signature.
-              This execution path is only
-              for the local Anvil MVP.
+              orchestrator verifies the
+              ERC-8004 identity and EIP-712
+              signature offchain, while the
+              TaskExecutor currently binds
+              the evidence hash but does not
+              verify the Agent signature
+              onchain. This execution path is
+              only for the local Anvil MVP.
             </div>
           </div>
         </div>

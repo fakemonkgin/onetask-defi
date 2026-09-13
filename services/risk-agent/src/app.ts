@@ -2,6 +2,10 @@ import Fastify from "fastify";
 
 import { environment } from "./config.js";
 import {
+  type VerifiedRiskAgentIdentity,
+  verifyRegisteredRiskAgentIdentity,
+} from "./erc8004/identity-service.js";
+import {
   RISK_EVIDENCE_SIGNATURE_DOMAIN,
   riskAgentSignerAddress,
 } from "./evidence-signer.js";
@@ -20,11 +24,19 @@ export function buildApp() {
     logger: true,
   });
 
-  const publicBaseUrl =
-    environment.PUBLIC_BASE_URL.replace(
-      /\/$/,
-      "",
-    );
+  let verifiedIdentity:
+    | VerifiedRiskAgentIdentity
+    | undefined;
+
+  function getVerifiedIdentity() {
+    if (!verifiedIdentity) {
+      throw new Error(
+        "The ERC-8004 Agent identity has not been verified.",
+      );
+    }
+
+    return verifiedIdentity;
+  }
 
   /*
    * This must run before the protected
@@ -32,7 +44,59 @@ export function buildApp() {
    */
   applyX402Protection(app);
 
+  /*
+   * Fail closed during startup if the
+   * configured ERC-8004 identity cannot
+   * be verified against Base Sepolia.
+   */
+  app.addHook(
+    "onReady",
+    async () => {
+      verifiedIdentity =
+        await verifyRegisteredRiskAgentIdentity();
+
+      app.log.info(
+        {
+          erc8004: {
+            verified:
+              verifiedIdentity
+                .verified,
+
+            chainId:
+              verifiedIdentity
+                .chainId,
+
+            registry:
+              verifiedIdentity
+                .registry,
+
+            agentId:
+              verifiedIdentity
+                .agentId,
+
+            owner:
+              verifiedIdentity
+                .owner,
+
+            agentWallet:
+              verifiedIdentity
+                .agentWallet,
+
+            agentUriHash:
+              verifiedIdentity
+                .agentUri
+                .hash,
+          },
+        },
+        "Verified ERC-8004 Agent identity.",
+      );
+    },
+  );
+
   app.get("/health", async () => {
+    const identity =
+      getVerifiedIdentity();
+
     return {
       status: "ok",
 
@@ -87,52 +151,42 @@ export function buildApp() {
               .chainId,
         },
       },
+
+      erc8004Identity: {
+        verified:
+          identity.verified,
+
+        chainId:
+          identity.chainId,
+
+        registry:
+          identity.registry,
+
+        agentId:
+          identity.agentId,
+
+        agentRegistry:
+          identity.agentRegistry,
+
+        owner:
+          identity.owner,
+
+        agentWallet:
+          identity.agentWallet,
+
+        agentUri:
+          identity.agentUri,
+      },
     };
   });
 
   app.get(
     "/.well-known/agent-registration.json",
     async () => {
-      return {
-        type:
-          "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
+      const identity =
+        getVerifiedIdentity();
 
-        name:
-          "OneTask Risk Agent",
-
-        description:
-          "Independently verifies OneTask DeFi vault migration constraints and produces EIP-712-signed, hash-bound risk evidence. Access is protected by x402.",
-
-        image:
-          `${publicBaseUrl}/agent.svg`,
-
-        services: [
-          {
-            name:
-              "risk-evaluation",
-
-            endpoint:
-              `${publicBaseUrl}/v1/risk/evaluate`,
-
-            version:
-              AGENT_VERSION,
-          },
-
-          {
-            name:
-              "agent-wallet",
-
-            endpoint:
-              `eip155:84532:${riskAgentSignerAddress}`,
-
-            version: "1",
-          },
-        ],
-
-        x402Support: true,
-        active: true,
-        registrations: [],
-      };
+      return identity.registration;
     },
   );
 

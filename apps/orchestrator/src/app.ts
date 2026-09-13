@@ -224,6 +224,7 @@ export async function buildApp() {
           );
 
         const {
+          agentDiscovery,
           riskEvidence,
           x402Payment,
         } =
@@ -245,6 +246,7 @@ export async function buildApp() {
                 "The migration plan was rejected by the risk agent.",
 
               migrationPlan,
+              agentDiscovery,
               riskEvidence,
               x402Payment,
             });
@@ -252,6 +254,7 @@ export async function buildApp() {
 
         return reply.send({
           migrationPlan,
+          agentDiscovery,
           riskEvidence,
           x402Payment,
         });

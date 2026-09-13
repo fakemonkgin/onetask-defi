@@ -28,6 +28,13 @@ const uintStringSchema = z
     "Expected an unsigned integer string.",
   );
 
+const erc8004AgentRegistrySchema = z
+  .string()
+  .regex(
+    /^eip155:84532:0x[a-fA-F0-9]{40}$/,
+    "Expected a Base Sepolia ERC-8004 registry identifier.",
+  );
+
 const taskPreviewResponseSchema = z.object({
   preview: z.object({
     id: z.string().uuid(),
@@ -56,10 +63,12 @@ const vaultStateResponseSchema = z.object({
     asset: z.object({
       address: evmAddressSchema,
       symbol: z.string(),
+
       decimals: z
         .number()
         .int()
         .nonnegative(),
+
       userBalance: uintStringSchema,
     }),
 
@@ -70,6 +79,7 @@ const vaultStateResponseSchema = z.object({
       executable: z.boolean(),
       sourceShares: uintStringSchema,
       assetsReceived: uintStringSchema,
+
       destinationShares:
         uintStringSchema,
     }),
@@ -137,13 +147,64 @@ const riskEvidenceSchema = z.object({
     hexSignatureSchema.nullable(),
 });
 
+const agentDiscoverySchema = z.object({
+  source: z.literal(
+    "erc8004-onchain",
+  ),
+
+  identity: z.object({
+    verified: z.literal(true),
+
+    chainId: z.literal(
+      84_532,
+    ),
+
+    registry: evmAddressSchema,
+    agentId: uintStringSchema,
+
+    agentRegistry:
+      erc8004AgentRegistrySchema,
+
+    owner: evmAddressSchema,
+    agentWallet: evmAddressSchema,
+
+    observedBlockNumber:
+      uintStringSchema,
+  }),
+
+  registration: z.object({
+    type: z.literal(
+      "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
+    ),
+
+    name: z.string().min(1),
+    active: z.literal(true),
+    x402Support: z.literal(true),
+    uriHash: bytes32Schema,
+  }),
+
+  service: z.object({
+    name: z.literal(
+      "risk-evaluation",
+    ),
+
+    endpoint: z
+      .string()
+      .url(),
+
+    version: z.string().min(1),
+  }),
+});
+
 const x402PaymentSchema = z.object({
   status: z.literal("settled"),
   success: z.literal(true),
   transaction: bytes32Schema,
+
   network: z.literal(
     "eip155:84532",
   ),
+
   payer: evmAddressSchema,
 });
 
@@ -159,16 +220,27 @@ const migrationPlanResponseSchema = z.object({
     plan: z.object({
       user: evmAddressSchema,
       sourceVault: evmAddressSchema,
+
       destinationVault:
         evmAddressSchema,
-      sourceShares: uintStringSchema,
+
+      sourceShares:
+        uintStringSchema,
+
       minAssetsReceived:
         uintStringSchema,
+
       minDestinationShares:
         uintStringSchema,
-      deadline: uintStringSchema,
-      nonce: uintStringSchema,
-      evidenceHash: bytes32Schema,
+
+      deadline:
+        uintStringSchema,
+
+      nonce:
+        uintStringSchema,
+
+      evidenceHash:
+        bytes32Schema,
     }),
 
     quote: z.object({
@@ -186,7 +258,9 @@ const migrationPlanResponseSchema = z.object({
     }),
 
     constraints: z.object({
-      maxLossBps: z.number().int(),
+      maxLossBps: z
+        .number()
+        .int(),
 
       basisPointsDenominator: z
         .number()
@@ -212,8 +286,14 @@ const migrationPlanResponseSchema = z.object({
     }),
   }),
 
-  riskEvidence: riskEvidenceSchema,
-  x402Payment: x402PaymentSchema,
+  agentDiscovery:
+    agentDiscoverySchema,
+
+  riskEvidence:
+    riskEvidenceSchema,
+
+  x402Payment:
+    x402PaymentSchema,
 });
 
 const apiErrorSchema = z.object({
@@ -231,6 +311,10 @@ export type VaultStateResponse = z.infer<
 
 export type MigrationPlanResponse = z.infer<
   typeof migrationPlanResponseSchema
+>;
+
+export type AgentDiscovery = z.infer<
+  typeof agentDiscoverySchema
 >;
 
 export type RiskEvidence = z.infer<
@@ -395,8 +479,9 @@ export async function createMigrationPlan(
    * structurally valid plan. That is a valid
    * product result, not a network failure.
    *
-   * We return the plan, risk evidence, and
-   * x402 settlement receipt so the UI can
+   * We return the plan, verified ERC-8004
+   * discovery result, signed risk evidence,
+   * and x402 settlement receipt so the UI can
    * explain exactly why execution is blocked.
    */
   if (
