@@ -2,13 +2,21 @@
 
 A consumer-facing, Agent-assisted DeFi execution prototype powered by ERC-8004, x402, EIP-712, ERC-4626, and constrained smart-contract execution.
 
-> Status: Portfolio MVP complete.  
+> **Status:** Portfolio MVP complete.  
 > All assets and transactions are restricted to local Anvil or public testnets.  
 > This project is not audited and must not be used with real funds.
 
-## Product Goal
+[Detailed Architecture](docs/ARCHITECTURE.md) · [ERC-8004 Registration](https://sepolia.basescan.org/tx/0xadf38f66d2e58fa61611c449647e33139be7cad53dbab40b6d9a34edf1e7f4b7) · [Verified x402 Settlement](https://sepolia.basescan.org/tx/0xd6dd41c97f2ccb25d24f3315867043e46527342ba7324492479f2bbe02093c1a)
 
-OneTask turns a user's DeFi intent into a verifiable execution plan.
+## Product Overview
+
+![OneTask DeFi product overview](docs/assets/01-product-overview.png)
+
+OneTask converts a user's DeFi intent into a constrained and independently verified execution plan.
+
+It does not give an AI Agent unrestricted access to a wallet. Instead, the system discovers a registered service, pays it through x402, verifies its signed evidence, and requires the user to authorize a narrowly scoped smart-contract action.
+
+## Product Goal
 
 Instead of trusting an arbitrary AI service URL, the Orchestrator:
 
@@ -21,18 +29,49 @@ Instead of trusting an arbitrary AI service URL, the Orchestrator:
 7. Verifies the Agent wallet, evidence signature, hashes, and payment receipt.
 8. Allows the user to authorize a constrained ERC-4626 vault migration.
 
+## Key Engineering Features
+
+- Onchain ERC-8004 Agent discovery on Base Sepolia
+- x402 machine-to-machine payment using testnet USDC
+- EIP-712-signed, hash-bound risk evidence
+- Independent deterministic risk-policy checks
+- Exact settlement-receipt verification
+- ERC-4626 vault state and migration previews
+- Atomic, constrained smart-contract execution
+- Deadline and nonce-reuse protection
+- Minimum asset and destination-share guarantees
+- Exact vault-share approval
+- Next.js interface with live Anvil contract state
+- Fastify Orchestrator and Risk Agent services
+- PostgreSQL task-preview persistence
+- Foundry contract test suite with 23 passing tests
+
 ## Verifiable Execution Flow
 
 ```mermaid
 flowchart TD
     A["Consumer DeFi intent"] --> B["OneTask Orchestrator"]
     B --> C["ERC-8004 identity discovery"]
-    C --> D["x402 paid Risk Agent"]
+    C --> D["x402-paid Risk Agent"]
     D --> E["EIP-712 signed evidence"]
     E --> F["User-authorized TaskExecutor"]
 ```
 
-The AI Agent does not receive the user's private key and cannot submit arbitrary calldata.
+The Agent does not receive the user's private key and cannot submit arbitrary calldata.
+
+## Verified Agent Service Chain
+
+![OneTask ERC-8004, x402, and signed-evidence trust chain](docs/assets/02-agent-trust-chain.png)
+
+Before accepting a risk decision, the Orchestrator verifies:
+
+1. The Agent identity exists in the configured ERC-8004 registry.
+2. The registered owner and Agent wallet match the expected identity.
+3. The onchain metadata exposes an active x402-enabled risk service.
+4. The discovered endpoint matches the configured trusted origin.
+5. The x402 payment settles successfully on Base Sepolia.
+6. The returned evidence is signed by the registered Agent wallet.
+7. The request hash and migration-plan evidence hash match.
 
 ## Current Demonstration
 
@@ -62,12 +101,14 @@ The Risk Agent independently checks:
 
 | Component | Technology | Responsibility |
 |---|---|---|
-| Web application | Next.js, React, wagmi, viem, TanStack Query | Consumer interface, wallet connection, plan review, execution |
-| Orchestrator | Fastify, TypeScript, PostgreSQL, viem | Builds plans, discovers Agents, pays services, verifies evidence |
+| Web application | Next.js, React, wagmi, viem, TanStack Query | Consumer interface, wallet connection, plan review, and execution |
+| Orchestrator | Fastify, TypeScript, PostgreSQL, viem | Builds plans, discovers Agents, pays services, and verifies evidence |
 | Risk Agent | Fastify, TypeScript, x402, EIP-712 | Evaluates migration risk and signs evidence |
-| Smart contracts | Solidity, Foundry, OpenZeppelin | Mock token, ERC-4626 vaults, constrained execution |
-| Identity layer | ERC-8004 on Base Sepolia | Agent discovery, ownership, wallet and metadata |
+| Smart contracts | Solidity, Foundry, OpenZeppelin | Mock token, ERC-4626 vaults, and constrained execution |
+| Identity layer | ERC-8004 on Base Sepolia | Agent discovery, ownership, wallet, and metadata verification |
 | Payment layer | x402 on Base Sepolia | Machine-to-machine payment for risk evaluation |
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the detailed system architecture, trust chain, execution sequence, and security boundaries.
 
 ## Repository Structure
 
@@ -84,11 +125,17 @@ packages/
     ├── script/
     ├── src/
     └── test/
+
+docs/
+├── ARCHITECTURE.md
+└── assets/
+    ├── 01-product-overview.png
+    └── 02-agent-trust-chain.png
 ```
 
 ## ERC-8004 Test Identity
 
-The Risk Agent has a real public-testnet identity registered on Base Sepolia.
+The Risk Agent has a public-testnet identity registered on Base Sepolia.
 
 | Field | Value |
 |---|---|
@@ -96,9 +143,9 @@ The Risk Agent has a real public-testnet identity registered on Base Sepolia.
 | Agent ID | `9228` |
 | Identity Registry | `0x8004A818BFB912233c491871b3d84c89A494BD9e` |
 | Agent Wallet | `0x82f6512c0d502319FF1Cd9f03E98DcDbF81fF51f` |
-| Global Registry ID | `eip155:84532:0x8004A818BFB912233c491871b3d84c89A494BD9e` |
+| Registry Identifier | `eip155:84532:0x8004A818BFB912233c491871b3d84c89A494BD9e` |
 
-Public testnet transactions:
+Public-testnet transactions:
 
 - [ERC-8004 registration transaction](https://sepolia.basescan.org/tx/0xadf38f66d2e58fa61611c449647e33139be7cad53dbab40b6d9a34edf1e7f4b7)
 - [ERC-8004 metadata transaction](https://sepolia.basescan.org/tx/0x3b3c1c7fde15c76e490a02377871ca2d14338905f4cfda43db6723d0528e042a)
@@ -222,6 +269,31 @@ Use separate terminal windows.
 
 ```bash
 anvil
+```
+
+Deploy and seed the local mock contracts using a development account printed by Anvil. Never use a real wallet key.
+
+```bash
+cd packages/contracts
+
+forge script \
+  script/DeployLocal.s.sol:DeployLocal \
+  --rpc-url http://127.0.0.1:8545 \
+  --private-key "$ONETASK_ANVIL_PRIVATE_KEY" \
+  --broadcast \
+  -vv
+```
+
+Provide the deployed local contract addresses through your private environment configuration, then seed the mock vault state:
+
+```bash
+forge script \
+  script/SeedLocal.s.sol:SeedLocal \
+  --rpc-url http://127.0.0.1:8545 \
+  --broadcast \
+  -vv
+
+cd ../..
 ```
 
 ### 2. Risk Agent
