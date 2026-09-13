@@ -2,6 +2,10 @@ import Fastify from "fastify";
 
 import { environment } from "./config.js";
 import {
+  RISK_EVIDENCE_SIGNATURE_DOMAIN,
+  riskAgentSignerAddress,
+} from "./evidence-signer.js";
+import {
   evaluateRisk,
   riskEvaluationInputSchema,
 } from "./risk-evaluator.js";
@@ -31,9 +35,15 @@ export function buildApp() {
   app.get("/health", async () => {
     return {
       status: "ok",
-      service: "onetask-risk-agent",
-      version: AGENT_VERSION,
-      mode: "deterministic-policy",
+
+      service:
+        "onetask-risk-agent",
+
+      version:
+        AGENT_VERSION,
+
+      mode:
+        "deterministic-policy",
 
       x402Protection: true,
 
@@ -54,6 +64,29 @@ export function buildApp() {
           environment
             .X402_FACILITATOR_URL,
       },
+
+      evidenceSigning: {
+        enabled: true,
+
+        scheme: "eip712",
+
+        signer:
+          riskAgentSignerAddress,
+
+        domain: {
+          name:
+            RISK_EVIDENCE_SIGNATURE_DOMAIN
+              .name,
+
+          version:
+            RISK_EVIDENCE_SIGNATURE_DOMAIN
+              .version,
+
+          chainId:
+            RISK_EVIDENCE_SIGNATURE_DOMAIN
+              .chainId,
+        },
+      },
     };
   });
 
@@ -61,13 +94,14 @@ export function buildApp() {
     "/.well-known/agent-registration.json",
     async () => {
       return {
-        type: "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
+        type:
+          "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
 
         name:
           "OneTask Risk Agent",
 
         description:
-          "Independently verifies OneTask DeFi vault migration constraints and produces hash-bound risk evidence. Access is protected by x402.",
+          "Independently verifies OneTask DeFi vault migration constraints and produces EIP-712-signed, hash-bound risk evidence. Access is protected by x402.",
 
         image:
           `${publicBaseUrl}/agent.svg`,
@@ -82,6 +116,16 @@ export function buildApp() {
 
             version:
               AGENT_VERSION,
+          },
+
+          {
+            name:
+              "agent-wallet",
+
+            endpoint:
+              `eip155:84532:${riskAgentSignerAddress}`,
+
+            version: "1",
           },
         ],
 
@@ -155,7 +199,7 @@ export function buildApp() {
       }
 
       const evidence =
-        evaluateRisk(
+        await evaluateRisk(
           parsedInput.data,
         );
 

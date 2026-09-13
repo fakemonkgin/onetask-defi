@@ -10,12 +10,16 @@ import { z } from "zod";
 const evmAddressSchema = z
   .string()
   .refine(
-    (value) => isAddress(value),
+    (value) =>
+      isAddress(value),
     "A valid EVM address is required.",
   )
-  .transform((value) => getAddress(value))
+  .transform((value) =>
+    getAddress(value),
+  )
   .refine(
-    (value) => value !== zeroAddress,
+    (value) =>
+      value !== zeroAddress,
     "The zero address is not allowed.",
   );
 
@@ -26,7 +30,8 @@ const privateKeySchema = z
     "X402_BUYER_PRIVATE_KEY must be a 32-byte hex private key.",
   )
   .transform(
-    (value) => value as `0x${string}`,
+    (value) =>
+      value as `0x${string}`,
   );
 
 const x402PaymentLimitSchema = z
@@ -37,7 +42,10 @@ const x402PaymentLimitSchema = z
   )
   .refine(
     (value) => {
-      const amount = Number(value.slice(1));
+      const amount =
+        Number(
+          value.slice(1),
+        );
 
       return (
         Number.isFinite(amount) &&
@@ -45,77 +53,97 @@ const x402PaymentLimitSchema = z
         amount <= 0.001
       );
     },
+
     "The x402 payment limit must be greater than $0 and no more than $0.001.",
   );
 
-const environmentSchema = z.object({
-  DATABASE_URL: z
-    .string()
-    .min(1, "DATABASE_URL is required."),
+const environmentSchema =
+  z.object({
+    DATABASE_URL: z
+      .string()
+      .min(
+        1,
+        "DATABASE_URL is required.",
+      ),
 
-  PORT: z.coerce
-    .number()
-    .int()
-    .min(1)
-    .max(65535)
-    .default(3001),
+    PORT: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(65_535)
+      .default(3001),
 
-  HOST: z
-    .string()
-    .default("127.0.0.1"),
+    HOST: z
+      .string()
+      .default("127.0.0.1"),
 
-  WEB_ORIGIN: z
-    .string()
-    .url()
-    .default("http://localhost:3000"),
+    WEB_ORIGIN: z
+      .string()
+      .url()
+      .default(
+        "http://localhost:3000",
+      ),
 
-  CHAIN_RPC_URL: z
-    .string()
-    .url()
-    .default("http://127.0.0.1:8545"),
+    CHAIN_RPC_URL: z
+      .string()
+      .url()
+      .default(
+        "http://127.0.0.1:8545",
+      ),
 
-  CHAIN_ID: z.coerce
-    .number()
-    .int()
-    .positive()
-    .default(31337),
+    CHAIN_ID: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(31_337),
 
-  MOCK_USDC_ADDRESS: evmAddressSchema,
+    MOCK_USDC_ADDRESS:
+      evmAddressSchema,
 
-  VAULT_A_ADDRESS: evmAddressSchema,
+    VAULT_A_ADDRESS:
+      evmAddressSchema,
 
-  VAULT_B_ADDRESS: evmAddressSchema,
+    VAULT_B_ADDRESS:
+      evmAddressSchema,
 
-  TASK_EXECUTOR_ADDRESS:
-    evmAddressSchema,
+    TASK_EXECUTOR_ADDRESS:
+      evmAddressSchema,
 
-  RISK_AGENT_URL: z
-    .string()
-    .url()
-    .default("http://127.0.0.1:3101"),
+    RISK_AGENT_URL: z
+      .string()
+      .url()
+      .default(
+        "http://127.0.0.1:3101",
+      ),
 
-  RISK_AGENT_TIMEOUT_MS: z.coerce
-    .number()
-    .int()
-    .min(100)
-    .max(30_000)
-    .default(5_000),
+    RISK_AGENT_TIMEOUT_MS:
+      z.coerce
+        .number()
+        .int()
+        .min(100)
+        .max(30_000)
+        .default(5_000),
 
-  X402_BUYER_PRIVATE_KEY:
-    privateKeySchema,
+    RISK_AGENT_SIGNER_ADDRESS:
+      evmAddressSchema,
 
-  X402_BUYER_ADDRESS:
-    evmAddressSchema,
+    X402_BUYER_PRIVATE_KEY:
+      privateKeySchema,
 
-  X402_NETWORK: z
-    .literal("eip155:84532")
-    .default("eip155:84532"),
+    X402_BUYER_ADDRESS:
+      evmAddressSchema,
 
-  X402_MAX_AMOUNT_PER_PAYMENT:
-    x402PaymentLimitSchema.default(
-      "$0.001",
-    ),
-});
+    X402_NETWORK: z
+      .literal("eip155:84532")
+      .default("eip155:84532"),
+
+    X402_MAX_AMOUNT_PER_PAYMENT:
+      x402PaymentLimitSchema.default(
+        "$0.001",
+      ),
+  });
 
 export const environment =
-  environmentSchema.parse(process.env);
+  environmentSchema.parse(
+    process.env,
+  );

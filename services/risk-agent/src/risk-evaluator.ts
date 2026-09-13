@@ -1,10 +1,15 @@
 import {
+  type Hash,
   keccak256,
   stringToHex,
 } from "viem";
 import { z } from "zod";
 
 import { environment } from "./config.js";
+import {
+  riskAgentSignerAddress,
+  signRiskEvidence,
+} from "./evidence-signer.js";
 
 const addressSchema = z
   .string()
@@ -12,7 +17,10 @@ const addressSchema = z
 
 const bytes32Schema = z
   .string()
-  .regex(/^0x[a-fA-F0-9]{64}$/);
+  .regex(/^0x[a-fA-F0-9]{64}$/)
+  .transform(
+    (value) => value as Hash,
+  );
 
 const unsignedIntegerStringSchema = z
   .string()
@@ -32,11 +40,16 @@ export const riskEvaluationInputSchema = z.object({
     user: addressSchema,
     sourceVault: addressSchema,
     destinationVault: addressSchema,
-    sourceShares: unsignedIntegerStringSchema,
-    minAssetsReceived: unsignedIntegerStringSchema,
-    minDestinationShares: unsignedIntegerStringSchema,
-    deadline: unsignedIntegerStringSchema,
-    nonce: unsignedIntegerStringSchema,
+    sourceShares:
+      unsignedIntegerStringSchema,
+    minAssetsReceived:
+      unsignedIntegerStringSchema,
+    minDestinationShares:
+      unsignedIntegerStringSchema,
+    deadline:
+      unsignedIntegerStringSchema,
+    nonce:
+      unsignedIntegerStringSchema,
     evidenceHash: bytes32Schema,
   }),
 
@@ -61,7 +74,8 @@ export const riskEvaluationInputSchema = z.object({
       .min(0)
       .max(10_000),
 
-    basisPointsDenominator: z.literal(10_000),
+    basisPointsDenominator:
+      z.literal(10_000),
 
     expiresInSeconds: z
       .number()
@@ -96,12 +110,16 @@ function minimumAfterLoss(
   quotedAmount: bigint,
   maxLossBps: number,
 ) {
-  const denominator = BigInt(10_000);
+  const denominator =
+    BigInt(10_000);
+
   const retainedBasisPoints =
-    denominator - BigInt(maxLossBps);
+    denominator -
+    BigInt(maxLossBps);
 
   const numerator =
-    quotedAmount * retainedBasisPoints;
+    quotedAmount *
+    retainedBasisPoints;
 
   return (
     numerator +
@@ -110,14 +128,19 @@ function minimumAfterLoss(
   ) / denominator;
 }
 
-function canonicalize(value: unknown): string {
+function canonicalize(
+  value: unknown,
+): string {
   if (
     value === null ||
     typeof value !== "object"
   ) {
-    const serializedValue = JSON.stringify(value);
+    const serializedValue =
+      JSON.stringify(value);
 
-    if (serializedValue === undefined) {
+    if (
+      serializedValue === undefined
+    ) {
       throw new Error(
         "Unable to canonicalize the supplied value.",
       );
@@ -128,58 +151,87 @@ function canonicalize(value: unknown): string {
 
   if (Array.isArray(value)) {
     return `[${value
-      .map((item) => canonicalize(item))
+      .map((item) =>
+        canonicalize(item),
+      )
       .join(",")}]`;
   }
 
   const record =
-    value as Record<string, unknown>;
+    value as Record<
+      string,
+      unknown
+    >;
 
-  const serializedEntries = Object.keys(record)
-    .sort()
-    .map((key) => {
-      return `${JSON.stringify(key)}:${canonicalize(
-        record[key],
-      )}`;
-    });
+  const serializedEntries =
+    Object.keys(record)
+      .sort()
+      .map((key) => {
+        return `${JSON.stringify(
+          key,
+        )}:${canonicalize(
+          record[key],
+        )}`;
+      });
 
-  return `{${serializedEntries.join(",")}}`;
+  return `{${serializedEntries.join(
+    ",",
+  )}}`;
 }
 
-function hashCanonicalValue(value: unknown) {
+function hashCanonicalValue(
+  value: unknown,
+) {
   return keccak256(
-    stringToHex(canonicalize(value)),
+    stringToHex(
+      canonicalize(value),
+    ),
   );
 }
 
-export function evaluateRisk(
+export async function evaluateRisk(
   input: RiskEvaluationInput,
 ) {
   const sourceShares =
-    BigInt(input.plan.sourceShares);
+    BigInt(
+      input.plan.sourceShares,
+    );
 
   const quotedAssets =
-    BigInt(input.quote.quotedAssetsReceived);
+    BigInt(
+      input.quote
+        .quotedAssetsReceived,
+    );
 
   const quotedDestinationShares =
     BigInt(
-      input.quote.quotedDestinationShares,
+      input.quote
+        .quotedDestinationShares,
     );
 
   const minAssetsReceived =
-    BigInt(input.plan.minAssetsReceived);
+    BigInt(
+      input.plan
+        .minAssetsReceived,
+    );
 
   const minDestinationShares =
     BigInt(
-      input.plan.minDestinationShares,
+      input.plan
+        .minDestinationShares,
     );
 
   const deadline =
-    BigInt(input.plan.deadline);
+    BigInt(
+      input.plan.deadline,
+    );
 
-  const currentUnixTime = BigInt(
-    Math.floor(Date.now() / 1_000),
-  );
+  const currentUnixTime =
+    BigInt(
+      Math.floor(
+        Date.now() / 1_000,
+      ),
+    );
 
   const minimumExecutionWindow =
     BigInt(30);
@@ -187,53 +239,66 @@ export function evaluateRisk(
   const expectedMinAssets =
     minimumAfterLoss(
       quotedAssets,
-      input.constraints.maxLossBps,
+      input.constraints
+        .maxLossBps,
     );
 
   const expectedMinDestinationShares =
     minimumAfterLoss(
       quotedDestinationShares,
-      input.constraints.maxLossBps,
+      input.constraints
+        .maxLossBps,
     );
 
   const chainAccepted =
-    input.chainId === environment.CHAIN_ID;
+    input.chainId ===
+    environment.CHAIN_ID;
 
-  const executorAccepted = addressesEqual(
-    input.taskExecutor.address,
-    environment.TASK_EXECUTOR_ADDRESS,
-  );
+  const executorAccepted =
+    addressesEqual(
+      input.taskExecutor.address,
+      environment
+        .TASK_EXECUTOR_ADDRESS,
+    );
 
   const vaultsAreDifferent =
     !addressesEqual(
       input.plan.sourceVault,
-      input.plan.destinationVault,
+      input.plan
+        .destinationVault,
     );
 
   const positionIsNonzero =
-    sourceShares > BigInt(0);
+    sourceShares >
+    BigInt(0);
 
   const lossPolicyAccepted =
-    input.constraints.maxLossBps <=
-    environment.MAX_ALLOWED_LOSS_BPS;
+    input.constraints
+      .maxLossBps <=
+    environment
+      .MAX_ALLOWED_LOSS_BPS;
 
   const assetFloorIsCorrect =
-    minAssetsReceived === expectedMinAssets;
+    minAssetsReceived ===
+    expectedMinAssets;
 
   const destinationFloorIsCorrect =
     minDestinationShares ===
     expectedMinDestinationShares;
 
   const assetQuoteSatisfiesFloor =
-    quotedAssets >= minAssetsReceived;
+    quotedAssets >=
+    minAssetsReceived;
 
   const destinationQuoteSatisfiesFloor =
     quotedDestinationShares >=
     minDestinationShares;
 
   const ttlAccepted =
-    input.constraints.expiresInSeconds <=
-    environment.MAX_PLAN_TTL_SECONDS;
+    input.constraints
+      .expiresInSeconds <=
+    environment
+      .MAX_PLAN_TTL_SECONDS;
 
   const deadlineIsFresh =
     deadline >=
@@ -248,125 +313,230 @@ export function evaluateRisk(
   const checks: RiskCheck[] = [
     {
       id: "allowed-chain",
-      label: "Allowed execution chain",
-      passed: chainAccepted,
+
+      label:
+        "Allowed execution chain",
+
+      passed:
+        chainAccepted,
+
       weight: 35,
-      detail: chainAccepted
-        ? `Chain ${input.chainId} is allowed.`
-        : `Expected chain ${environment.CHAIN_ID}, received ${input.chainId}.`,
+
+      detail:
+        chainAccepted
+          ? `Chain ${input.chainId} is allowed.`
+          : `Expected chain ${environment.CHAIN_ID}, received ${input.chainId}.`,
     },
+
     {
       id: "trusted-executor",
-      label: "Trusted task executor",
-      passed: executorAccepted,
+
+      label:
+        "Trusted task executor",
+
+      passed:
+        executorAccepted,
+
       weight: 40,
-      detail: executorAccepted
-        ? "The plan targets the configured TaskExecutor."
-        : "The plan targets an unexpected executor.",
+
+      detail:
+        executorAccepted
+          ? "The plan targets the configured TaskExecutor."
+          : "The plan targets an unexpected executor.",
     },
+
     {
       id: "distinct-vaults",
-      label: "Distinct source and destination",
-      passed: vaultsAreDifferent,
+
+      label:
+        "Distinct source and destination",
+
+      passed:
+        vaultsAreDifferent,
+
       weight: 25,
-      detail: vaultsAreDifferent
-        ? "The source and destination vaults are different."
-        : "The source and destination vaults are identical.",
+
+      detail:
+        vaultsAreDifferent
+          ? "The source and destination vaults are different."
+          : "The source and destination vaults are identical.",
     },
+
     {
       id: "nonzero-position",
-      label: "Nonzero source position",
-      passed: positionIsNonzero,
+
+      label:
+        "Nonzero source position",
+
+      passed:
+        positionIsNonzero,
+
       weight: 20,
-      detail: positionIsNonzero
-        ? "The migration contains source shares."
-        : "The migration contains zero source shares.",
+
+      detail:
+        positionIsNonzero
+          ? "The migration contains source shares."
+          : "The migration contains zero source shares.",
     },
+
     {
       id: "loss-policy",
-      label: "Maximum-loss policy",
-      passed: lossPolicyAccepted,
+
+      label:
+        "Maximum-loss policy",
+
+      passed:
+        lossPolicyAccepted,
+
       weight: 35,
-      detail: lossPolicyAccepted
-        ? `Maximum loss is ${input.constraints.maxLossBps} basis points.`
-        : `Maximum loss exceeds the agent limit of ${environment.MAX_ALLOWED_LOSS_BPS} basis points.`,
+
+      detail:
+        lossPolicyAccepted
+          ? `Maximum loss is ${input.constraints.maxLossBps} basis points.`
+          : `Maximum loss exceeds the agent limit of ${environment.MAX_ALLOWED_LOSS_BPS} basis points.`,
     },
+
     {
-      id: "asset-floor-integrity",
-      label: "Minimum asset floor",
-      passed: assetFloorIsCorrect,
+      id:
+        "asset-floor-integrity",
+
+      label:
+        "Minimum asset floor",
+
+      passed:
+        assetFloorIsCorrect,
+
       weight: 45,
-      detail: assetFloorIsCorrect
-        ? "The minimum asset output matches the quoted loss constraint."
-        : "The minimum asset output does not match the quoted loss constraint.",
+
+      detail:
+        assetFloorIsCorrect
+          ? "The minimum asset output matches the quoted loss constraint."
+          : "The minimum asset output does not match the quoted loss constraint.",
     },
+
     {
-      id: "share-floor-integrity",
-      label: "Minimum destination-share floor",
-      passed: destinationFloorIsCorrect,
+      id:
+        "share-floor-integrity",
+
+      label:
+        "Minimum destination-share floor",
+
+      passed:
+        destinationFloorIsCorrect,
+
       weight: 45,
-      detail: destinationFloorIsCorrect
-        ? "The minimum destination shares match the quoted loss constraint."
-        : "The minimum destination shares do not match the quoted loss constraint.",
+
+      detail:
+        destinationFloorIsCorrect
+          ? "The minimum destination shares match the quoted loss constraint."
+          : "The minimum destination shares do not match the quoted loss constraint.",
     },
+
     {
       id: "asset-quote",
-      label: "Quoted assets satisfy floor",
-      passed: assetQuoteSatisfiesFloor,
+
+      label:
+        "Quoted assets satisfy floor",
+
+      passed:
+        assetQuoteSatisfiesFloor,
+
       weight: 50,
-      detail: assetQuoteSatisfiesFloor
-        ? "The quoted assets satisfy the minimum output."
-        : "The quoted assets are below the minimum output.",
+
+      detail:
+        assetQuoteSatisfiesFloor
+          ? "The quoted assets satisfy the minimum output."
+          : "The quoted assets are below the minimum output.",
     },
+
     {
-      id: "destination-quote",
-      label: "Quoted shares satisfy floor",
-      passed: destinationQuoteSatisfiesFloor,
+      id:
+        "destination-quote",
+
+      label:
+        "Quoted shares satisfy floor",
+
+      passed:
+        destinationQuoteSatisfiesFloor,
+
       weight: 50,
-      detail: destinationQuoteSatisfiesFloor
-        ? "The quoted destination shares satisfy the minimum output."
-        : "The quoted destination shares are below the minimum output.",
+
+      detail:
+        destinationQuoteSatisfiesFloor
+          ? "The quoted destination shares satisfy the minimum output."
+          : "The quoted destination shares are below the minimum output.",
     },
+
     {
       id: "ttl-policy",
-      label: "Bounded plan lifetime",
-      passed: ttlAccepted,
+
+      label:
+        "Bounded plan lifetime",
+
+      passed:
+        ttlAccepted,
+
       weight: 20,
-      detail: ttlAccepted
-        ? "The requested plan lifetime is within policy."
-        : `The plan lifetime exceeds ${environment.MAX_PLAN_TTL_SECONDS} seconds.`,
+
+      detail:
+        ttlAccepted
+          ? "The requested plan lifetime is within policy."
+          : `The plan lifetime exceeds ${environment.MAX_PLAN_TTL_SECONDS} seconds.`,
     },
+
     {
       id: "fresh-deadline",
-      label: "Fresh execution deadline",
-      passed: deadlineIsFresh,
+
+      label:
+        "Fresh execution deadline",
+
+      passed:
+        deadlineIsFresh,
+
       weight: 40,
-      detail: deadlineIsFresh
-        ? "The plan has enough time remaining for execution."
-        : "The plan is expired or too close to expiry.",
+
+      detail:
+        deadlineIsFresh
+          ? "The plan has enough time remaining for execution."
+          : "The plan is expired or too close to expiry.",
     },
+
     {
       id: "bound-evidence",
-      label: "Bound plan evidence",
-      passed: evidenceHashIsNonzero,
+
+      label:
+        "Bound plan evidence",
+
+      passed:
+        evidenceHashIsNonzero,
+
       weight: 30,
-      detail: evidenceHashIsNonzero
-        ? "The migration plan contains a nonzero evidence hash."
-        : "The migration plan is not bound to evidence.",
+
+      detail:
+        evidenceHashIsNonzero
+          ? "The migration plan contains a nonzero evidence hash."
+          : "The migration plan is not bound to evidence.",
     },
   ];
 
   const riskScore = Math.min(
     100,
-    checks.reduce((score, check) => {
-      return check.passed
-        ? score
-        : score + check.weight;
-    }, 0),
+
+    checks.reduce(
+      (score, check) => {
+        return check.passed
+          ? score
+          : score +
+              check.weight;
+      },
+      0,
+    ),
   );
 
   const decision =
-    checks.every((check) => check.passed)
+    checks.every(
+      (check) => check.passed,
+    )
       ? "approve"
       : "reject";
 
@@ -384,26 +554,53 @@ export function evaluateRisk(
     hashCanonicalValue(input);
 
   const unsignedEvidence = {
-    schema: "onetask.risk-evidence.v1",
+    schema:
+      "onetask.risk-evidence.v1" as const,
+
     agent: {
-      name: "OneTask Risk Agent",
+      name:
+        "OneTask Risk Agent",
+
       version: "0.1.0",
+
+      walletAddress:
+        riskAgentSignerAddress,
     },
+
     requestHash,
+
     planEvidenceHash:
       input.plan.evidenceHash,
+
     decision,
+
     riskScore,
     riskLevel,
     checks,
     evaluatedAt,
+
+    signatureScheme:
+      "eip712" as const,
   };
+
+  const evidenceHash =
+    hashCanonicalValue(
+      unsignedEvidence,
+    );
+
+  const signature =
+    await signRiskEvidence({
+      requestHash,
+
+      planEvidenceHash:
+        input.plan.evidenceHash,
+
+      evidenceHash,
+    });
 
   return {
     ...unsignedEvidence,
-    evidenceHash:
-      hashCanonicalValue(unsignedEvidence),
-
-    signature: null,
+    evidenceHash,
+    signature,
   };
 }
