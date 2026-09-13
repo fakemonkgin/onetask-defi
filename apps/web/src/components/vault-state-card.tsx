@@ -1,20 +1,14 @@
 "use client";
 
-import {
-  useEffect,
-  useState,
-} from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useConnection } from "wagmi";
 
-import {
-  getVaultState,
-  type VaultStateResponse,
-} from "@/lib/orchestrator-client";
+import { getVaultState } from "@/lib/orchestrator-client";
+import { anvilChain } from "@/lib/wagmi-config";
 
 const DEMO_USER_ADDRESS =
   process.env.NEXT_PUBLIC_DEMO_USER_ADDRESS ??
   "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
-
-type VaultState = VaultStateResponse["state"];
 
 function formatTokenAmount(
   rawValue: string,
@@ -48,72 +42,47 @@ function shortenAddress(address: string) {
 }
 
 export function VaultStateCard() {
-  const [vaultState, setVaultState] =
-    useState<VaultState | null>(null);
+  const connection = useConnection();
 
-  const [errorMessage, setErrorMessage] =
-    useState<string | null>(null);
+  const connectedAddress =
+    connection.isConnected &&
+    connection.chainId === anvilChain.id
+      ? connection.address
+      : undefined;
 
-  const [isLoading, setIsLoading] =
-    useState(true);
+  const selectedUserAddress =
+    connectedAddress ?? DEMO_USER_ADDRESS;
 
-  useEffect(() => {
-    let cancelled = false;
+  const vaultStateQuery = useQuery({
+    queryKey: [
+      "vault-state",
+      selectedUserAddress,
+    ],
+    queryFn: () =>
+      getVaultState(selectedUserAddress),
+    refetchOnWindowFocus: false,
+  });
 
-    void getVaultState(DEMO_USER_ADDRESS)
-      .then((result) => {
-        if (!cancelled) {
-          setVaultState(result.state);
-          setErrorMessage(null);
-        }
-      })
-      .catch((error: unknown) => {
-        if (!cancelled) {
-          setErrorMessage(
-            error instanceof Error
-              ? error.message
-              : "Unable to load vault state.",
-          );
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setIsLoading(false);
-        }
-      });
+  const vaultState =
+    vaultStateQuery.data?.state ?? null;
 
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const errorMessage =
+    vaultStateQuery.error instanceof Error
+      ? vaultStateQuery.error.message
+      : vaultStateQuery.isError
+        ? "Unable to load vault state."
+        : null;
 
-  async function handleRefresh() {
-    if (isLoading) {
-      return;
-    }
-
-    setIsLoading(true);
-    setErrorMessage(null);
-
-    try {
-      const result = await getVaultState(
-        DEMO_USER_ADDRESS,
-      );
-
-      setVaultState(result.state);
-    } catch (error) {
-      setErrorMessage(
-        error instanceof Error
-          ? error.message
-          : "Unable to load vault state.",
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  }
+  const isLoading =
+    vaultStateQuery.isPending ||
+    vaultStateQuery.isFetching;
 
   const decimals =
     vaultState?.asset.decimals ?? 6;
+
+  function handleRefresh() {
+    void vaultStateQuery.refetch();
+  }
 
   return (
     <section className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
@@ -128,8 +97,8 @@ export function VaultStateCard() {
           </h2>
 
           <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
-            Reading the local Anvil contracts through
-            the orchestrator.
+            Reading the local Anvil contracts
+            through the orchestrator.
           </p>
         </div>
 
@@ -147,18 +116,28 @@ export function VaultStateCard() {
 
       <div className="mt-5 flex flex-wrap gap-2">
         <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-800 dark:bg-blue-950 dark:text-blue-300">
-          Chain 31337
+          Chain{" "}
+          {vaultState?.chainId ??
+            anvilChain.id}
         </span>
 
         <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-semibold text-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
           Read only
         </span>
 
+        <span className="rounded-full bg-violet-100 px-3 py-1 text-xs font-semibold text-violet-800 dark:bg-violet-950 dark:text-violet-300">
+          {connectedAddress
+            ? "Connected wallet"
+            : "Demo account"}
+        </span>
+
         <span
           className="rounded-full border border-zinc-300 px-3 py-1 font-mono text-xs dark:border-zinc-700"
-          title={DEMO_USER_ADDRESS}
+          title={selectedUserAddress}
         >
-          {shortenAddress(DEMO_USER_ADDRESS)}
+          {shortenAddress(
+            selectedUserAddress,
+          )}
         </span>
       </div>
 
@@ -202,9 +181,11 @@ export function VaultStateCard() {
                   <dt className="text-zinc-500">
                     User shares
                   </dt>
+
                   <dd className="font-mono font-medium">
                     {formatTokenAmount(
-                      vaultState.vaultA.userShares,
+                      vaultState.vaultA
+                        .userShares,
                       decimals,
                     )}
                   </dd>
@@ -214,9 +195,11 @@ export function VaultStateCard() {
                   <dt className="text-zinc-500">
                     Managed assets
                   </dt>
+
                   <dd className="font-mono font-medium">
                     {formatTokenAmount(
-                      vaultState.vaultA.totalAssets,
+                      vaultState.vaultA
+                        .totalAssets,
                       decimals,
                     )}{" "}
                     {vaultState.asset.symbol}
@@ -227,14 +210,17 @@ export function VaultStateCard() {
                   <dt className="text-zinc-500">
                     Contract
                   </dt>
+
                   <dd
                     className="font-mono"
                     title={
-                      vaultState.vaultA.address
+                      vaultState.vaultA
+                        .address
                     }
                   >
                     {shortenAddress(
-                      vaultState.vaultA.address,
+                      vaultState.vaultA
+                        .address,
                     )}
                   </dd>
                 </div>
@@ -263,9 +249,11 @@ export function VaultStateCard() {
                   <dt className="text-zinc-500">
                     Total shares
                   </dt>
+
                   <dd className="font-mono font-medium">
                     {formatTokenAmount(
-                      vaultState.vaultB.totalSupply,
+                      vaultState.vaultB
+                        .totalSupply,
                       decimals,
                     )}
                   </dd>
@@ -275,9 +263,11 @@ export function VaultStateCard() {
                   <dt className="text-zinc-500">
                     Managed assets
                   </dt>
+
                   <dd className="font-mono font-medium">
                     {formatTokenAmount(
-                      vaultState.vaultB.totalAssets,
+                      vaultState.vaultB
+                        .totalAssets,
                       decimals,
                     )}{" "}
                     {vaultState.asset.symbol}
@@ -288,14 +278,17 @@ export function VaultStateCard() {
                   <dt className="text-zinc-500">
                     Contract
                   </dt>
+
                   <dd
                     className="font-mono"
                     title={
-                      vaultState.vaultB.address
+                      vaultState.vaultB
+                        .address
                     }
                   >
                     {shortenAddress(
-                      vaultState.vaultB.address,
+                      vaultState.vaultB
+                        .address,
                     )}
                   </dd>
                 </div>
@@ -311,8 +304,8 @@ export function VaultStateCard() {
                 </p>
 
                 <h3 className="mt-1 font-semibold">
-                  Migrate the complete Vault A
-                  position
+                  Migrate the complete Vault
+                  A position
                 </h3>
               </div>
 
@@ -329,9 +322,11 @@ export function VaultStateCard() {
                 <dt className="text-xs text-zinc-500">
                   Source shares
                 </dt>
+
                 <dd className="mt-1 font-mono text-lg font-semibold">
                   {formatTokenAmount(
-                    vaultState.migrationPreview
+                    vaultState
+                      .migrationPreview
                       .sourceShares,
                     decimals,
                   )}
@@ -342,9 +337,11 @@ export function VaultStateCard() {
                 <dt className="text-xs text-zinc-500">
                   Assets redeemed
                 </dt>
+
                 <dd className="mt-1 font-mono text-lg font-semibold">
                   {formatTokenAmount(
-                    vaultState.migrationPreview
+                    vaultState
+                      .migrationPreview
                       .assetsReceived,
                     decimals,
                   )}{" "}
@@ -356,9 +353,11 @@ export function VaultStateCard() {
                 <dt className="text-xs text-zinc-500">
                   Destination shares
                 </dt>
+
                 <dd className="mt-1 font-mono text-lg font-semibold">
                   {formatTokenAmount(
-                    vaultState.migrationPreview
+                    vaultState
+                      .migrationPreview
                       .destinationShares,
                     decimals,
                   )}
@@ -373,9 +372,9 @@ export function VaultStateCard() {
             </p>
 
             <p className="mt-1 text-zinc-500 dark:text-zinc-400">
-              This is a read-only preview. No wallet
-              signature or token approval has been
-              requested.
+              This is a read-only preview. No
+              wallet signature or token approval
+              has been requested.
             </p>
 
             <p className="mt-3 break-all font-mono text-xs text-zinc-500">

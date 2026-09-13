@@ -1,5 +1,6 @@
 import { TaskComposer } from "@/components/task-composer";
 import { VaultStateCard } from "@/components/vault-state-card";
+import { WalletButton } from "@/components/wallet-button";
 
 const workflowSteps = [
   "Discover ERC-8004 registered agents",
@@ -11,8 +12,7 @@ export default function Home() {
   return (
     <main className="flex flex-1 bg-zinc-50 px-5 py-6 font-sans text-zinc-950 dark:bg-black dark:text-zinc-50 sm:px-8 sm:py-8">
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-12">
-        <header className="flex items-center justify-between">
-          <div>
+        <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">          <div>
             <p className="text-lg font-bold tracking-tight">
               OneTask DeFi
             </p>
@@ -22,10 +22,14 @@ export default function Home() {
             </p>
           </div>
 
+        <div className="flex flex-wrap items-center gap-3">
           <span className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium dark:border-zinc-700">
             Prototype v0.1
           </span>
-        </header>
+
+          <WalletButton />
+        </div>
+       </header>
 
         <section className="grid items-center gap-12 lg:grid-cols-[0.9fr_1.1fr]">
           <div>
