@@ -6,6 +6,10 @@ import {
 } from "viem";
 import { z } from "zod";
 
+import {
+  evaluateMigrationRisk,
+  RiskAgentClientError,
+} from "./clients/risk-agent-client.js";
 import { environment } from "./config.js";
 import { databasePool } from "./database.js";
 import { TaskPreviewRepository } from "./repositories/task-preview-repository.js";
@@ -36,7 +40,9 @@ const userAddressSchema = z
     (value) => isAddress(value),
     "A valid EVM user address is required.",
   )
-  .transform((value) => getAddress(value));
+  .transform((value) =>
+    getAddress(value),
+  );
 
 const vaultStateQuerySchema = z.object({
   user: userAddressSchema,
@@ -70,7 +76,8 @@ const TASK_PREVIEW_PIPELINE = [
   "await-user-authorization",
 ] as const;
 
-const PREVIEW_TTL_MS = 10 * 60 * 1000;
+const PREVIEW_TTL_MS =
+  10 * 60 * 1_000;
 
 export async function buildApp() {
   const app = Fastify({
@@ -78,11 +85,18 @@ export async function buildApp() {
   });
 
   const taskPreviewRepository =
-    new TaskPreviewRepository(databasePool);
+    new TaskPreviewRepository(
+      databasePool,
+    );
 
   await app.register(cors, {
-    origin: environment.WEB_ORIGIN,
-    methods: ["GET", "POST"],
+    origin:
+      environment.WEB_ORIGIN,
+
+    methods: [
+      "GET",
+      "POST",
+    ],
   });
 
   app.get("/health", async () => {
@@ -95,9 +109,12 @@ export async function buildApp() {
 
     return {
       status: "ok",
-      service: "onetask-orchestrator",
+      service:
+        "onetask-orchestrator",
+
       database:
-        databaseResult.rows[0]?.database ??
+        databaseResult.rows[0]
+          ?.database ??
         "unknown",
     };
   });
@@ -111,33 +128,48 @@ export async function buildApp() {
         );
 
       if (!parsedQuery.success) {
-        return reply.code(400).send({
-          code: "INVALID_USER_ADDRESS",
-          message:
-            "A valid EVM user address is required.",
-          fields:
-            parsedQuery.error.flatten()
-              .fieldErrors,
-        });
+        return reply
+          .code(400)
+          .send({
+            code:
+              "INVALID_USER_ADDRESS",
+
+            message:
+              "A valid EVM user address is required.",
+
+            fields:
+              parsedQuery.error
+                .flatten()
+                .fieldErrors,
+          });
       }
 
       try {
-        const state = await getVaultState(
-          parsedQuery.data.user,
-        );
+        const state =
+          await getVaultState(
+            parsedQuery.data.user,
+          );
 
-        return reply.send({ state });
+        return reply.send({
+          state,
+        });
       } catch (error) {
         request.log.error(
-          { err: error },
+          {
+            err: error,
+          },
           "Unable to read vault state.",
         );
 
-        return reply.code(503).send({
-          code: "CHAIN_UNAVAILABLE",
-          message:
-            "The local blockchain state could not be read.",
-        });
+        return reply
+          .code(503)
+          .send({
+            code:
+              "CHAIN_UNAVAILABLE",
+
+            message:
+              "The local blockchain state could not be read.",
+          });
       }
     },
   );
@@ -151,26 +183,56 @@ export async function buildApp() {
         );
 
       if (!parsedInput.success) {
-        return reply.code(400).send({
-          code:
-            "INVALID_MIGRATION_PLAN_INPUT",
-          message:
-            "The migration plan request is invalid.",
-          fields:
-            parsedInput.error.flatten()
-              .fieldErrors,
-        });
+        return reply
+          .code(400)
+          .send({
+            code:
+              "INVALID_MIGRATION_PLAN_INPUT",
+
+            message:
+              "The migration plan request is invalid.",
+
+            fields:
+              parsedInput.error
+                .flatten()
+                .fieldErrors,
+          });
       }
 
       try {
         const migrationPlan =
           await createMigrationPlan(
             parsedInput.data.user,
-            parsedInput.data.maxLossBps,
+            parsedInput.data
+              .maxLossBps,
           );
+
+        const riskEvidence =
+          await evaluateMigrationRisk(
+            migrationPlan,
+          );
+
+        if (
+          riskEvidence.decision !==
+          "approve"
+        ) {
+          return reply
+            .code(422)
+            .send({
+              code:
+                "RISK_POLICY_REJECTED",
+
+              message:
+                "The migration plan was rejected by the risk agent.",
+
+              migrationPlan,
+              riskEvidence,
+            });
+        }
 
         return reply.send({
           migrationPlan,
+          riskEvidence,
         });
       } catch (error) {
         if (
@@ -190,20 +252,58 @@ export async function buildApp() {
             .code(statusCode)
             .send({
               code: error.code,
-              message: error.message,
+              message:
+                error.message,
+            });
+        }
+
+        if (
+          error instanceof
+          RiskAgentClientError
+        ) {
+          const statusCode:
+            | 502
+            | 503 =
+            error.code ===
+            "RISK_AGENT_UNAVAILABLE"
+              ? 503
+              : 502;
+
+          request.log.error(
+            {
+              err: error,
+              riskAgentUrl:
+                environment
+                  .RISK_AGENT_URL,
+            },
+            "Unable to obtain valid risk evidence.",
+          );
+
+          return reply
+            .code(statusCode)
+            .send({
+              code: error.code,
+              message:
+                error.message,
             });
         }
 
         request.log.error(
-          { err: error },
+          {
+            err: error,
+          },
           "Unable to create migration plan.",
         );
 
-        return reply.code(503).send({
-          code: "CHAIN_UNAVAILABLE",
-          message:
-            "The local blockchain state could not be read.",
-        });
+        return reply
+          .code(503)
+          .send({
+            code:
+              "CHAIN_UNAVAILABLE",
+
+            message:
+              "The local blockchain state could not be read.",
+          });
       }
     },
   );
@@ -217,46 +317,71 @@ export async function buildApp() {
         );
 
       if (!parsedInput.success) {
-        return reply.code(400).send({
-          code: "INVALID_TASK_INTENT",
-          message:
-            "The submitted DeFi intent is invalid.",
-          fields:
-            parsedInput.error.flatten()
-              .fieldErrors,
-        });
+        return reply
+          .code(400)
+          .send({
+            code:
+              "INVALID_TASK_INTENT",
+
+            message:
+              "The submitted DeFi intent is invalid.",
+
+            fields:
+              parsedInput.error
+                .flatten()
+                .fieldErrors,
+          });
       }
 
-      const expiresAt = new Date(
-        Date.now() + PREVIEW_TTL_MS,
-      );
+      const expiresAt =
+        new Date(
+          Date.now() +
+            PREVIEW_TTL_MS,
+        );
 
       const preview =
         await taskPreviewRepository.create({
-          intent: parsedInput.data.intent,
-          pipeline: TASK_PREVIEW_PIPELINE,
+          intent:
+            parsedInput.data.intent,
+
+          pipeline:
+            TASK_PREVIEW_PIPELINE,
+
           expiresAt,
         });
 
-      return reply.code(201).send({
-        preview: {
-          id: preview.id,
-          intent: preview.intent,
-          network: preview.network,
-          mode: preview.mode,
-          createdAt:
-            preview.createdAt.toISOString(),
-          expiresAt:
-            preview.expiresAt.toISOString(),
-        },
-        pipeline: preview.pipeline,
-      });
+      return reply
+        .code(201)
+        .send({
+          preview: {
+            id: preview.id,
+            intent:
+              preview.intent,
+            network:
+              preview.network,
+            mode: preview.mode,
+
+            createdAt:
+              preview.createdAt
+                .toISOString(),
+
+            expiresAt:
+              preview.expiresAt
+                .toISOString(),
+          },
+
+          pipeline:
+            preview.pipeline,
+        });
     },
   );
 
-  app.addHook("onClose", async () => {
-    await databasePool.end();
-  });
+  app.addHook(
+    "onClose",
+    async () => {
+      await databasePool.end();
+    },
+  );
 
   return app;
 }
