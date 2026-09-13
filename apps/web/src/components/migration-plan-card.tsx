@@ -213,12 +213,18 @@ export function MigrationPlanCard({
     migrationPlanMutation.data
       ?.riskEvidence;
 
+  const x402Payment =
+    migrationPlanMutation.data
+      ?.x402Payment;
+
   const riskExecutionApproved =
     result !== undefined &&
     riskEvidence !== undefined &&
+    x402Payment !== undefined &&
     isRiskEvidenceExecutable(
       riskEvidence,
       result.plan.evidenceHash,
+      x402Payment,
     );
 
   const isConnectedPlanUser =
@@ -239,6 +245,7 @@ export function MigrationPlanCard({
     if (
       !result ||
       !riskEvidence ||
+      !x402Payment ||
       !riskExecutionApproved
     ) {
       return;
@@ -271,9 +278,11 @@ export function MigrationPlanCard({
 
           <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-600 dark:text-zinc-400">
             The orchestrator builds the
-            contract parameters and requests
-            an independent Risk Agent
-            assessment before execution.
+            contract parameters, pays the
+            independent Risk Agent through
+            x402 on Base Sepolia, and accepts
+            the assessment only after payment
+            settlement.
           </p>
         </div>
 
@@ -288,11 +297,18 @@ export function MigrationPlanCard({
           className="shrink-0 rounded-full bg-blue-700 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-40"
         >
           {migrationPlanMutation.isPending
-            ? "Building & reviewing..."
+            ? "Paying & reviewing..."
             : result
-              ? "Regenerate plan"
-              : "Generate 0.5% plan"}
+              ? "Pay & regenerate plan"
+              : "Pay & generate 0.5% plan"}
         </button>
+      </div>
+
+      <div className="mt-5 rounded-2xl border border-blue-200 bg-white p-4 text-sm leading-6 text-zinc-600 dark:border-blue-900 dark:bg-zinc-950 dark:text-zinc-400">
+        Generating or regenerating a plan
+        requests a new Risk Agent evaluation
+        and performs a new x402 payment using
+        Base Sepolia faucet-only test USDC.
       </div>
 
       {!executable &&
@@ -317,7 +333,9 @@ export function MigrationPlanCard({
         </div>
       ) : null}
 
-      {result && riskEvidence ? (
+      {result &&
+      riskEvidence &&
+      x402Payment ? (
         <div
           className="mt-6 space-y-5"
           aria-live="polite"
@@ -334,6 +352,10 @@ export function MigrationPlanCard({
                   .maxLossBps,
               )}
               %
+            </span>
+
+            <span className="rounded-full bg-violet-700 px-3 py-1 text-xs font-semibold text-white">
+              x402 settled
             </span>
 
             <span
@@ -541,6 +563,7 @@ export function MigrationPlanCard({
             planEvidenceHash={
               result.plan.evidenceHash
             }
+            x402Payment={x402Payment}
           />
 
           <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 dark:border-emerald-900 dark:bg-emerald-950/30">
@@ -584,7 +607,7 @@ export function MigrationPlanCard({
                   : execution.isSuccess
                     ? "Migration complete"
                     : !riskExecutionApproved
-                      ? "Risk approval required"
+                      ? "Verified review required"
                       : "Approve & execute on Anvil"}
               </button>
             </div>
@@ -596,7 +619,8 @@ export function MigrationPlanCard({
                 role="alert"
               >
                 Execution is disabled
-                because the Risk Agent
+                because the x402 payment is
+                not settled, the Risk Agent
                 rejected the plan, a policy
                 check failed, or the reviewed
                 plan hash does not match.
@@ -618,11 +642,13 @@ export function MigrationPlanCard({
             !execution.approvalTransactionHash &&
             !execution.migrationTransactionHash ? (
               <div className="mt-4 rounded-2xl border border-emerald-200 bg-white p-4 text-sm leading-6 text-zinc-600 dark:border-emerald-900 dark:bg-zinc-950 dark:text-zinc-400">
-                Clicking the execution
+                Clicking this execution
                 button may open two wallet
                 prompts: one exact share
                 approval and one constrained
-                migration transaction.
+                migration transaction. It
+                does not make another x402
+                payment.
               </div>
             ) : null}
 

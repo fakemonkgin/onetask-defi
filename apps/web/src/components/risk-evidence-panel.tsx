@@ -1,8 +1,15 @@
-import type { RiskEvidence } from "@/lib/orchestrator-client";
+import type {
+  RiskEvidence,
+  X402Payment,
+} from "@/lib/orchestrator-client";
+
+const BASE_SEPOLIA_EXPLORER_URL =
+  "https://sepolia.basescan.org";
 
 type RiskEvidencePanelProps = {
   riskEvidence: RiskEvidence;
   planEvidenceHash: string;
+  x402Payment: X402Payment;
 };
 
 function hashesEqual(
@@ -15,9 +22,19 @@ function hashesEqual(
   );
 }
 
+function shortenHexValue(
+  value: string,
+) {
+  return `${value.slice(
+    0,
+    8,
+  )}...${value.slice(-6)}`;
+}
+
 export function isRiskEvidenceExecutable(
   riskEvidence: RiskEvidence,
   planEvidenceHash: string,
+  x402Payment: X402Payment,
 ) {
   const evidenceIsBound =
     hashesEqual(
@@ -30,17 +47,26 @@ export function isRiskEvidenceExecutable(
       (check) => check.passed,
     );
 
+  const paymentIsSettled =
+    x402Payment.status ===
+      "settled" &&
+    x402Payment.success &&
+    x402Payment.network ===
+      "eip155:84532";
+
   return (
     riskEvidence.decision ===
       "approve" &&
     evidenceIsBound &&
-    everyCheckPassed
+    everyCheckPassed &&
+    paymentIsSettled
   );
 }
 
 export function RiskEvidencePanel({
   riskEvidence,
   planEvidenceHash,
+  x402Payment,
 }: RiskEvidencePanelProps) {
   const evidenceIsBound =
     hashesEqual(
@@ -57,10 +83,18 @@ export function RiskEvidencePanel({
     passedChecks ===
     riskEvidence.checks.length;
 
+  const paymentIsSettled =
+    x402Payment.status ===
+      "settled" &&
+    x402Payment.success &&
+    x402Payment.network ===
+      "eip155:84532";
+
   const executionApproved =
     isRiskEvidenceExecutable(
       riskEvidence,
       planEvidenceHash,
+      x402Payment,
     );
 
   const decisionLabel =
@@ -74,6 +108,9 @@ export function RiskEvidencePanel({
       .charAt(0)
       .toUpperCase() +
     riskEvidence.riskLevel.slice(1);
+
+  const paymentExplorerUrl =
+    `${BASE_SEPOLIA_EXPLORER_URL}/tx/${x402Payment.transaction}`;
 
   return (
     <section
@@ -128,6 +165,94 @@ export function RiskEvidencePanel({
               : "Signed"}
           </span>
         </div>
+      </div>
+
+      <div className="mt-5 rounded-xl border border-blue-200 bg-blue-50 p-4 dark:border-blue-900 dark:bg-blue-950/30">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider text-blue-700 dark:text-blue-400">
+              x402 paid service receipt
+            </p>
+
+            <h5 className="mt-1 font-semibold">
+              Risk evaluation payment
+            </h5>
+          </div>
+
+          <span
+            className={
+              paymentIsSettled
+                ? "rounded-full bg-emerald-700 px-3 py-1 text-xs font-semibold text-white"
+                : "rounded-full bg-red-700 px-3 py-1 text-xs font-semibold text-white"
+            }
+          >
+            {paymentIsSettled
+              ? "Settled"
+              : "Invalid receipt"}
+          </span>
+        </div>
+
+        <p className="mt-3 text-sm leading-6 text-zinc-600 dark:text-zinc-400">
+          The orchestrator paid the Risk
+          Agent through x402 before accepting
+          this evidence. This service payment
+          uses Base Sepolia test assets; the
+          vault migration remains on local
+          Anvil.
+        </p>
+
+        <dl className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div>
+            <dt className="text-xs text-zinc-500">
+              Payment network
+            </dt>
+
+            <dd className="mt-1 font-semibold">
+              Base Sepolia
+            </dd>
+
+            <dd className="mt-1 font-mono text-xs text-zinc-500">
+              {x402Payment.network}
+            </dd>
+          </div>
+
+          <div>
+            <dt className="text-xs text-zinc-500">
+              Buyer
+            </dt>
+
+            <dd
+              className="mt-1 font-mono text-sm font-semibold"
+              title={x402Payment.payer}
+            >
+              {shortenHexValue(
+                x402Payment.payer,
+              )}
+            </dd>
+          </div>
+
+          <div>
+            <dt className="text-xs text-zinc-500">
+              Settlement transaction
+            </dt>
+
+            <dd className="mt-1">
+              <a
+                href={paymentExplorerUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="font-mono text-sm font-semibold text-blue-700 underline decoration-blue-300 underline-offset-4 transition hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300"
+                title={
+                  x402Payment.transaction
+                }
+              >
+                {shortenHexValue(
+                  x402Payment.transaction,
+                )}
+              </a>
+            </dd>
+          </div>
+        </dl>
       </div>
 
       <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

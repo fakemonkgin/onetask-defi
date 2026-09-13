@@ -137,6 +137,16 @@ const riskEvidenceSchema = z.object({
     hexSignatureSchema.nullable(),
 });
 
+const x402PaymentSchema = z.object({
+  status: z.literal("settled"),
+  success: z.literal(true),
+  transaction: bytes32Schema,
+  network: z.literal(
+    "eip155:84532",
+  ),
+  payer: evmAddressSchema,
+});
+
 const migrationPlanResponseSchema = z.object({
   migrationPlan: z.object({
     mode: z.literal("simulation"),
@@ -203,6 +213,7 @@ const migrationPlanResponseSchema = z.object({
   }),
 
   riskEvidence: riskEvidenceSchema,
+  x402Payment: x402PaymentSchema,
 });
 
 const apiErrorSchema = z.object({
@@ -224,6 +235,10 @@ export type MigrationPlanResponse = z.infer<
 
 export type RiskEvidence = z.infer<
   typeof riskEvidenceSchema
+>;
+
+export type X402Payment = z.infer<
+  typeof x402PaymentSchema
 >;
 
 const orchestratorUrl =
@@ -380,8 +395,9 @@ export async function createMigrationPlan(
    * structurally valid plan. That is a valid
    * product result, not a network failure.
    *
-   * We return the plan and evidence so the UI
-   * can explain exactly why execution is blocked.
+   * We return the plan, risk evidence, and
+   * x402 settlement receipt so the UI can
+   * explain exactly why execution is blocked.
    */
   if (
     response.status === 422 &&
