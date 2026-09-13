@@ -109,6 +109,7 @@ export async function buildApp() {
 
     return {
       status: "ok",
+
       service:
         "onetask-orchestrator",
 
@@ -116,6 +117,21 @@ export async function buildApp() {
         databaseResult.rows[0]
           ?.database ??
         "unknown",
+
+      x402: {
+        enabled: true,
+
+        buyer:
+          environment
+            .X402_BUYER_ADDRESS,
+
+        network:
+          environment.X402_NETWORK,
+
+        maxAmountPerPayment:
+          environment
+            .X402_MAX_AMOUNT_PER_PAYMENT,
+      },
     };
   });
 
@@ -207,7 +223,10 @@ export async function buildApp() {
               .maxLossBps,
           );
 
-        const riskEvidence =
+        const {
+          riskEvidence,
+          x402Payment,
+        } =
           await evaluateMigrationRisk(
             migrationPlan,
           );
@@ -227,12 +246,14 @@ export async function buildApp() {
 
               migrationPlan,
               riskEvidence,
+              x402Payment,
             });
         }
 
         return reply.send({
           migrationPlan,
           riskEvidence,
+          x402Payment,
         });
       } catch (error) {
         if (
@@ -252,6 +273,7 @@ export async function buildApp() {
             .code(statusCode)
             .send({
               code: error.code,
+
               message:
                 error.message,
             });
@@ -272,6 +294,7 @@ export async function buildApp() {
           request.log.error(
             {
               err: error,
+
               riskAgentUrl:
                 environment
                   .RISK_AGENT_URL,
@@ -283,6 +306,7 @@ export async function buildApp() {
             .code(statusCode)
             .send({
               code: error.code,
+
               message:
                 error.message,
             });
@@ -355,11 +379,15 @@ export async function buildApp() {
         .send({
           preview: {
             id: preview.id,
+
             intent:
               preview.intent,
+
             network:
               preview.network,
-            mode: preview.mode,
+
+            mode:
+              preview.mode,
 
             createdAt:
               preview.createdAt

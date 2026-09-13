@@ -1,10 +1,29 @@
+import {
+  getAddress,
+  isAddress,
+  type Address,
+} from "viem";
 import { z } from "zod";
 
 import { environment } from "../config.js";
+import {
+  fetchWithX402Payment,
+  x402HttpClient,
+} from "../payments/x402-buyer.js";
 
 const bytes32Schema = z
   .string()
   .regex(/^0x[a-fA-F0-9]{64}$/);
+
+const evmAddressSchema = z
+  .string()
+  .refine(
+    (value) => isAddress(value),
+    "Expected a valid EVM address.",
+  )
+  .transform((value) =>
+    getAddress(value),
+  );
 
 const signatureSchema = z
   .string()
@@ -15,10 +34,12 @@ const riskCheckSchema = z.object({
   id: z.string().min(1),
   label: z.string().min(1),
   passed: z.boolean(),
+
   weight: z
     .number()
     .int()
     .nonnegative(),
+
   detail: z.string().min(1),
 });
 
@@ -67,13 +88,42 @@ const riskAgentResponseSchema = z.object({
   evidence: riskEvidenceSchema,
 });
 
+const x402SettlementResponseSchema =
+  z.object({
+    success: z.literal(true),
+
+    transaction:
+      bytes32Schema,
+
+    network: z.literal(
+      "eip155:84532",
+    ),
+
+    payer:
+      evmAddressSchema,
+  });
+
 export type RiskEvidence = z.infer<
   typeof riskEvidenceSchema
 >;
 
+export type X402PaymentReceipt = {
+  status: "settled";
+  success: true;
+  transaction: string;
+  network: "eip155:84532";
+  payer: Address;
+};
+
+export type RiskEvaluationResult = {
+  riskEvidence: RiskEvidence;
+  x402Payment: X402PaymentReceipt;
+};
+
 export type RiskAgentClientErrorCode =
   | "RISK_AGENT_UNAVAILABLE"
   | "RISK_AGENT_HTTP_ERROR"
+  | "X402_PAYMENT_FAILED"
   | "INVALID_RISK_AGENT_RESPONSE";
 
 export class RiskAgentClientError extends Error {
@@ -101,9 +151,110 @@ function createRiskEvaluationUrl() {
   );
 }
 
+function isNetworkFailure(
+  error: unknown,
+) {
+  return (
+    error instanceof TypeError &&
+    error.message
+      .toLowerCase()
+      .includes("fetch")
+  );
+}
+
+function getErrorMessage(
+  error: unknown,
+) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return "Unknown x402 payment error.";
+}
+
+async function processX402Response(
+  response: Response,
+) {
+  try {
+    return await x402HttpClient
+      .processResponse(response);
+  } catch {
+    throw new RiskAgentClientError(
+      "X402_PAYMENT_FAILED",
+      "The x402 settlement response could not be decoded.",
+    );
+  }
+}
+
+async function readX402PaymentReceipt(
+  response: Response,
+): Promise<X402PaymentReceipt> {
+  const paymentResult =
+    await processX402Response(
+      response,
+    );
+
+  if (
+    paymentResult.paymentStatus !==
+    "settled"
+  ) {
+    throw new RiskAgentClientError(
+      "X402_PAYMENT_FAILED",
+      "The risk agent response did not contain a successful x402 settlement.",
+    );
+  }
+
+  const parsedSettlement =
+    x402SettlementResponseSchema.safeParse(
+      paymentResult.header,
+    );
+
+  if (!parsedSettlement.success) {
+    throw new RiskAgentClientError(
+      "X402_PAYMENT_FAILED",
+      "The risk agent returned an invalid x402 settlement receipt.",
+    );
+  }
+
+  if (
+    parsedSettlement.data.payer !==
+    environment.X402_BUYER_ADDRESS
+  ) {
+    throw new RiskAgentClientError(
+      "X402_PAYMENT_FAILED",
+      "The x402 settlement payer does not match the configured Buyer.",
+    );
+  }
+
+  if (
+    parsedSettlement.data.network !==
+    environment.X402_NETWORK
+  ) {
+    throw new RiskAgentClientError(
+      "X402_PAYMENT_FAILED",
+      "The x402 settlement used an unexpected network.",
+    );
+  }
+
+  return {
+    status: "settled",
+    success: true,
+
+    transaction:
+      parsedSettlement.data
+        .transaction,
+
+    network:
+      parsedSettlement.data.network,
+
+    payer:
+      parsedSettlement.data.payer,
+  };
+}
+
 export async function evaluateMigrationRisk(
   migrationPlan: unknown,
-): Promise<RiskEvidence> {
+): Promise<RiskEvaluationResult> {
   const abortController =
     new AbortController();
 
@@ -115,35 +266,61 @@ export async function evaluateMigrationRisk(
     let response: Response;
 
     try {
-      response = await fetch(
-        createRiskEvaluationUrl(),
-        {
-          method: "POST",
+      response =
+        await fetchWithX402Payment(
+          createRiskEvaluationUrl(),
+          {
+            method: "POST",
 
-          headers: {
-            accept: "application/json",
-            "content-type":
-              "application/json",
+            headers: {
+              accept:
+                "application/json",
+
+              "content-type":
+                "application/json",
+            },
+
+            body: JSON.stringify(
+              migrationPlan,
+            ),
+
+            signal:
+              abortController.signal,
           },
-
-          body: JSON.stringify(
-            migrationPlan,
-          ),
-
-          signal:
-            abortController.signal,
-        },
-      );
+        );
     } catch (error) {
       const requestTimedOut =
         error instanceof Error &&
         error.name === "AbortError";
 
+      if (
+        requestTimedOut ||
+        isNetworkFailure(error)
+      ) {
+        throw new RiskAgentClientError(
+          "RISK_AGENT_UNAVAILABLE",
+          requestTimedOut
+            ? "The paid risk agent request timed out."
+            : "The risk agent could not be reached.",
+        );
+      }
+
       throw new RiskAgentClientError(
-        "RISK_AGENT_UNAVAILABLE",
-        requestTimedOut
-          ? "The risk agent request timed out."
-          : "The risk agent could not be reached.",
+        "X402_PAYMENT_FAILED",
+        [
+          "The x402 payment could not be completed.",
+          getErrorMessage(error),
+        ].join(" "),
+      );
+    }
+
+    const paymentResponse =
+      response.clone();
+
+    if (response.status === 402) {
+      throw new RiskAgentClientError(
+        "X402_PAYMENT_FAILED",
+        "The risk agent still requires payment after the x402 retry.",
       );
     }
 
@@ -178,7 +355,17 @@ export async function evaluateMigrationRisk(
       );
     }
 
-    return parsedResponse.data.evidence;
+    const x402Payment =
+      await readX402PaymentReceipt(
+        paymentResponse,
+      );
+
+    return {
+      riskEvidence:
+        parsedResponse.data.evidence,
+
+      x402Payment,
+    };
   } finally {
     clearTimeout(timeout);
   }
