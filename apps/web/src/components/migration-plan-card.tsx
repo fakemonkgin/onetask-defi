@@ -4,12 +4,14 @@ import {
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query";
-import {
-  type ReactNode,
-} from "react";
+import type { ReactNode } from "react";
 import { formatUnits } from "viem";
 import { useConnection } from "wagmi";
 
+import {
+  RiskEvidencePanel,
+  isRiskEvidenceExecutable,
+} from "@/components/risk-evidence-panel";
 import {
   type MigrationExecutionPhase,
   useVaultMigrationExecution,
@@ -24,20 +26,28 @@ const PHASE_LABELS: Record<
   string
 > = {
   idle: "Ready",
+
   "checking-plan":
     "Checking plan and nonce...",
+
   "simulating-approval":
     "Simulating exact approval...",
+
   "awaiting-approval-signature":
     "Confirm approval in wallet...",
+
   "confirming-approval":
     "Waiting for approval confirmation...",
+
   "simulating-migration":
     "Simulating vault migration...",
+
   "awaiting-migration-signature":
     "Confirm migration in wallet...",
+
   "confirming-migration":
     "Waiting for migration confirmation...",
+
   success: "Migration confirmed",
   error: "Execution stopped",
 };
@@ -106,14 +116,18 @@ function formatUnixTimestamp(
   timestamp: string,
 ) {
   return new Date(
-    Number(BigInt(timestamp)) * 1_000,
+    Number(BigInt(timestamp)) *
+      1_000,
   ).toLocaleString();
 }
 
 function shortenAddress(
   address: string,
 ) {
-  return `${address.slice(0, 6)}...${address.slice(-4)}`;
+  return `${address.slice(
+    0,
+    6,
+  )}...${address.slice(-4)}`;
 }
 
 function PlanMetric({
@@ -195,6 +209,18 @@ export function MigrationPlanCard({
     migrationPlanMutation.data
       ?.migrationPlan;
 
+  const riskEvidence =
+    migrationPlanMutation.data
+      ?.riskEvidence;
+
+  const riskExecutionApproved =
+    result !== undefined &&
+    riskEvidence !== undefined &&
+    isRiskEvidenceExecutable(
+      riskEvidence,
+      result.plan.evidenceHash,
+    );
+
   const isConnectedPlanUser =
     connection.status ===
       "connected" &&
@@ -210,7 +236,11 @@ export function MigrationPlanCard({
   }
 
   function executePlan() {
-    if (!result) {
+    if (
+      !result ||
+      !riskEvidence ||
+      !riskExecutionApproved
+    ) {
       return;
     }
 
@@ -236,13 +266,14 @@ export function MigrationPlanCard({
           </p>
 
           <h3 className="mt-2 text-xl font-semibold tracking-tight">
-            Build contract-ready parameters
+            Build an Agent-reviewed plan
           </h3>
 
           <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-600 dark:text-zinc-400">
-            The orchestrator reads the
-            current quote and applies a
-            0.5% maximum-loss constraint.
+            The orchestrator builds the
+            contract parameters and requests
+            an independent Risk Agent
+            assessment before execution.
           </p>
         </div>
 
@@ -257,14 +288,15 @@ export function MigrationPlanCard({
           className="shrink-0 rounded-full bg-blue-700 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-40"
         >
           {migrationPlanMutation.isPending
-            ? "Building plan..."
+            ? "Building & reviewing..."
             : result
               ? "Regenerate plan"
               : "Generate 0.5% plan"}
         </button>
       </div>
 
-      {!executable && !execution.isSuccess ? (
+      {!executable &&
+      !execution.isSuccess ? (
         <div className="mt-5 rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-600 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400">
           This account has no Vault A
           position, so no new migration
@@ -285,7 +317,7 @@ export function MigrationPlanCard({
         </div>
       ) : null}
 
-      {result ? (
+      {result && riskEvidence ? (
         <div
           className="mt-6 space-y-5"
           aria-live="polite"
@@ -304,8 +336,23 @@ export function MigrationPlanCard({
               %
             </span>
 
+            <span
+              className={
+                riskExecutionApproved
+                  ? "rounded-full bg-emerald-700 px-3 py-1 text-xs font-semibold text-white"
+                  : "rounded-full bg-red-700 px-3 py-1 text-xs font-semibold text-white"
+              }
+            >
+              {riskExecutionApproved
+                ? "Risk Agent approved"
+                : "Execution blocked"}
+            </span>
+
             <span className="rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
-              Unsigned local evidence
+              {riskEvidence.signature ===
+              null
+                ? "Unsigned Agent evidence"
+                : "Signed Agent evidence"}
             </span>
           </div>
 
@@ -384,9 +431,14 @@ export function MigrationPlanCard({
                       result.plan.nonce
                     }
                   >
-                    {result.plan.nonce.length >
-                    16
-                      ? `${result.plan.nonce.slice(0, 8)}...${result.plan.nonce.slice(-8)}`
+                    {result.plan.nonce
+                      .length > 16
+                      ? `${result.plan.nonce.slice(
+                          0,
+                          8,
+                        )}...${result.plan.nonce.slice(
+                          -8,
+                        )}`
                       : result.plan.nonce}
                   </span>
                 </DetailRow>
@@ -430,7 +482,8 @@ export function MigrationPlanCard({
                 <DetailRow label="Amount">
                   <span className="font-mono">
                     {formatTokenAmount(
-                      result.approval.amount,
+                      result.approval
+                        .amount,
                       assetDecimals,
                     )}{" "}
                     Vault A shares
@@ -457,7 +510,7 @@ export function MigrationPlanCard({
 
           <div className="rounded-2xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
             <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
-              Evidence binding
+              Contract evidence binding
             </p>
 
             <div className="mt-4 space-y-4">
@@ -473,7 +526,7 @@ export function MigrationPlanCard({
 
               <div>
                 <p className="text-xs text-zinc-500">
-                  Evidence hash
+                  Plan evidence hash
                 </p>
 
                 <p className="mt-1 break-all font-mono text-xs">
@@ -482,6 +535,13 @@ export function MigrationPlanCard({
               </div>
             </div>
           </div>
+
+          <RiskEvidencePanel
+            riskEvidence={riskEvidence}
+            planEvidenceHash={
+              result.plan.evidenceHash
+            }
+          />
 
           <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 dark:border-emerald-900 dark:bg-emerald-950/30">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -509,6 +569,7 @@ export function MigrationPlanCard({
               <button
                 type="button"
                 disabled={
+                  !riskExecutionApproved ||
                   !isConnectedPlanUser ||
                   execution.isRunning ||
                   execution.isSuccess
@@ -522,11 +583,28 @@ export function MigrationPlanCard({
                     ]
                   : execution.isSuccess
                     ? "Migration complete"
-                    : "Approve & execute on Anvil"}
+                    : !riskExecutionApproved
+                      ? "Risk approval required"
+                      : "Approve & execute on Anvil"}
               </button>
             </div>
 
-            {!isConnectedPlanUser &&
+            {!riskExecutionApproved &&
+            !execution.isSuccess ? (
+              <div
+                className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm leading-6 text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
+                role="alert"
+              >
+                Execution is disabled
+                because the Risk Agent
+                rejected the plan, a policy
+                check failed, or the reviewed
+                plan hash does not match.
+              </div>
+            ) : null}
+
+            {riskExecutionApproved &&
+            !isConnectedPlanUser &&
             !execution.isSuccess ? (
               <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
                 Connect the same Anvil
@@ -535,7 +613,8 @@ export function MigrationPlanCard({
               </div>
             ) : null}
 
-            {!execution.isSuccess &&
+            {riskExecutionApproved &&
+            !execution.isSuccess &&
             !execution.approvalTransactionHash &&
             !execution.migrationTransactionHash ? (
               <div className="mt-4 rounded-2xl border border-emerald-200 bg-white p-4 text-sm leading-6 text-zinc-600 dark:border-emerald-900 dark:bg-zinc-950 dark:text-zinc-400">
@@ -564,7 +643,8 @@ export function MigrationPlanCard({
                   <TransactionHash
                     label="Approval transaction"
                     hash={
-                      execution.approvalTransactionHash
+                      execution
+                        .approvalTransactionHash
                     }
                   />
                 ) : null}
@@ -573,7 +653,8 @@ export function MigrationPlanCard({
                   <TransactionHash
                     label="Migration transaction"
                     hash={
-                      execution.migrationTransactionHash
+                      execution
+                        .migrationTransactionHash
                     }
                   />
                 ) : null}
@@ -660,12 +741,12 @@ export function MigrationPlanCard({
 
             <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
               Current limitation: the
-              contract binds a nonzero
-              evidence hash but does not yet
-              verify an ERC-8004 Agent
-              signature. This execution path
-              is only for the local Anvil
-              MVP.
+              Risk Agent assessment is
+              hash-bound, but the contract
+              does not yet verify an
+              ERC-8004 Agent signature.
+              This execution path is only
+              for the local Anvil MVP.
             </div>
           </div>
         </div>

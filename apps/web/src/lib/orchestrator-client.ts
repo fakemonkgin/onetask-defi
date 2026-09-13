@@ -14,6 +14,13 @@ const bytes32Schema = z
     "Expected a bytes32 hex value.",
   );
 
+const hexSignatureSchema = z
+  .string()
+  .regex(
+    /^0x(?:[a-fA-F0-9]{2})+$/,
+    "Expected a hexadecimal signature.",
+  );
+
 const uintStringSchema = z
   .string()
   .regex(
@@ -49,7 +56,10 @@ const vaultStateResponseSchema = z.object({
     asset: z.object({
       address: evmAddressSchema,
       symbol: z.string(),
-      decimals: z.number().int().nonnegative(),
+      decimals: z
+        .number()
+        .int()
+        .nonnegative(),
       userBalance: uintStringSchema,
     }),
 
@@ -60,13 +70,71 @@ const vaultStateResponseSchema = z.object({
       executable: z.boolean(),
       sourceShares: uintStringSchema,
       assetsReceived: uintStringSchema,
-      destinationShares: uintStringSchema,
+      destinationShares:
+        uintStringSchema,
     }),
 
     taskExecutor: z.object({
       address: evmAddressSchema,
     }),
   }),
+});
+
+const riskCheckSchema = z.object({
+  id: z.string().min(1),
+  label: z.string().min(1),
+  passed: z.boolean(),
+
+  weight: z
+    .number()
+    .int()
+    .nonnegative(),
+
+  detail: z.string().min(1),
+});
+
+const riskEvidenceSchema = z.object({
+  schema: z.literal(
+    "onetask.risk-evidence.v1",
+  ),
+
+  agent: z.object({
+    name: z.string().min(1),
+    version: z.string().min(1),
+  }),
+
+  requestHash: bytes32Schema,
+  planEvidenceHash: bytes32Schema,
+
+  decision: z.enum([
+    "approve",
+    "reject",
+  ]),
+
+  riskScore: z
+    .number()
+    .int()
+    .min(0)
+    .max(100),
+
+  riskLevel: z.enum([
+    "low",
+    "medium",
+    "high",
+  ]),
+
+  checks: z
+    .array(riskCheckSchema)
+    .min(1),
+
+  evaluatedAt: z
+    .string()
+    .datetime(),
+
+  evidenceHash: bytes32Schema,
+
+  signature:
+    hexSignatureSchema.nullable(),
 });
 
 const migrationPlanResponseSchema = z.object({
@@ -81,30 +149,44 @@ const migrationPlanResponseSchema = z.object({
     plan: z.object({
       user: evmAddressSchema,
       sourceVault: evmAddressSchema,
-      destinationVault: evmAddressSchema,
+      destinationVault:
+        evmAddressSchema,
       sourceShares: uintStringSchema,
-      minAssetsReceived: uintStringSchema,
-      minDestinationShares: uintStringSchema,
+      minAssetsReceived:
+        uintStringSchema,
+      minDestinationShares:
+        uintStringSchema,
       deadline: uintStringSchema,
       nonce: uintStringSchema,
       evidenceHash: bytes32Schema,
     }),
 
     quote: z.object({
-      quotedAssetsReceived: uintStringSchema,
+      quotedAssetsReceived:
+        uintStringSchema,
+
       quotedDestinationShares:
         uintStringSchema,
-      observedBlockNumber: uintStringSchema,
+
+      observedBlockNumber:
+        uintStringSchema,
+
       observedBlockTimestamp:
         uintStringSchema,
     }),
 
     constraints: z.object({
       maxLossBps: z.number().int(),
-      basisPointsDenominator:
-        z.number().int().positive(),
-      expiresInSeconds:
-        z.number().int().positive(),
+
+      basisPointsDenominator: z
+        .number()
+        .int()
+        .positive(),
+
+      expiresInSeconds: z
+        .number()
+        .int()
+        .positive(),
     }),
 
     approval: z.object({
@@ -119,6 +201,8 @@ const migrationPlanResponseSchema = z.object({
       signedByAgent: z.boolean(),
     }),
   }),
+
+  riskEvidence: riskEvidenceSchema,
 });
 
 const apiErrorSchema = z.object({
@@ -136,6 +220,10 @@ export type VaultStateResponse = z.infer<
 
 export type MigrationPlanResponse = z.infer<
   typeof migrationPlanResponseSchema
+>;
+
+export type RiskEvidence = z.infer<
+  typeof riskEvidenceSchema
 >;
 
 const orchestratorUrl =
@@ -158,7 +246,9 @@ function getApiErrorMessage(
   fallbackMessage: string,
 ) {
   const parsedError =
-    apiErrorSchema.safeParse(responseBody);
+    apiErrorSchema.safeParse(
+      responseBody,
+    );
 
   return parsedError.success
     ? parsedError.data.message
@@ -174,7 +264,8 @@ export async function createTaskPreview(
       method: "POST",
 
       headers: {
-        "content-type": "application/json",
+        "content-type":
+          "application/json",
       },
 
       body: JSON.stringify({
@@ -265,7 +356,8 @@ export async function createMigrationPlan(
       method: "POST",
 
       headers: {
-        "content-type": "application/json",
+        "content-type":
+          "application/json",
       },
 
       body: JSON.stringify({
@@ -278,6 +370,26 @@ export async function createMigrationPlan(
   const responseBody =
     await readResponseBody(response);
 
+  const parsedResponse =
+    migrationPlanResponseSchema.safeParse(
+      responseBody,
+    );
+
+  /*
+   * HTTP 422 means the Risk Agent rejected a
+   * structurally valid plan. That is a valid
+   * product result, not a network failure.
+   *
+   * We return the plan and evidence so the UI
+   * can explain exactly why execution is blocked.
+   */
+  if (
+    response.status === 422 &&
+    parsedResponse.success
+  ) {
+    return parsedResponse.data;
+  }
+
   if (!response.ok) {
     throw new Error(
       getApiErrorMessage(
@@ -286,11 +398,6 @@ export async function createMigrationPlan(
       ),
     );
   }
-
-  const parsedResponse =
-    migrationPlanResponseSchema.safeParse(
-      responseBody,
-    );
 
   if (!parsedResponse.success) {
     throw new Error(
