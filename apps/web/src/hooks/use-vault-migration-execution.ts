@@ -394,7 +394,8 @@ export function useVaultMigrationExecution() {
           address:
             taskExecutorAddress,
 
-          abi: taskExecutorAbi,
+          abi:
+            taskExecutorAbi,
 
           functionName:
             "usedNonces",
@@ -416,7 +417,8 @@ export function useVaultMigrationExecution() {
           address:
             sourceVaultAddress,
 
-          abi: vaultShareTokenAbi,
+          abi:
+            vaultShareTokenAbi,
 
           functionName:
             "allowance",
@@ -586,53 +588,95 @@ export function useVaultMigrationExecution() {
         );
       }
 
-      const migrationEvents =
-        parseEventLogs({
-          abi:
-            taskExecutorAbi,
-
-          eventName:
-            "VaultMigrationExecuted",
-
-          logs:
-            migrationReceipt.logs,
-
-          strict: true,
-        });
-
-      const migrationEvent =
-        migrationEvents[0];
-
-      if (migrationEvent) {
-        setExecutionResult({
-          planHash:
-            migrationEvent.args
-              .planHash,
-
-          evidenceHash:
-            migrationEvent.args
-              .evidenceHash,
-
-          assetsReceived:
-            migrationEvent.args
-              .assetsReceived
-              .toString(),
-
-          destinationShares:
-            migrationEvent.args
-              .destinationShares
-              .toString(),
-        });
-      }
-
+      /*
+       * A successful transaction receipt is
+       * the authoritative execution result.
+       *
+       * Event decoding below only supplies
+       * additional values for the UI. A log
+       * decoding problem must never turn a
+       * confirmed transaction into an error.
+       */
+      setErrorMessage(undefined);
       setPhase("success");
+
+      try {
+        const executorLogs =
+          migrationReceipt.logs.filter(
+            (log) =>
+              addressesEqual(
+                log.address,
+                taskExecutorAddress,
+              ),
+          );
+
+        const migrationEvents =
+          parseEventLogs({
+            abi:
+              taskExecutorAbi,
+
+            eventName:
+              "VaultMigrationExecuted",
+
+            logs:
+              executorLogs,
+
+            strict: true,
+          });
+
+        const migrationEvent =
+          migrationEvents.find(
+            (event) =>
+              addressesEqual(
+                event.args.user,
+                connectedUser,
+              ) &&
+              event.args.nonce ===
+                nonce &&
+              event.args
+                .evidenceHash ===
+                contractPlan
+                  .evidenceHash,
+          );
+
+        if (migrationEvent) {
+          setExecutionResult({
+            planHash:
+              migrationEvent.args
+                .planHash,
+
+            evidenceHash:
+              migrationEvent.args
+                .evidenceHash,
+
+            assetsReceived:
+              migrationEvent.args
+                .assetsReceived
+                .toString(),
+
+            destinationShares:
+              migrationEvent.args
+                .destinationShares
+                .toString(),
+          });
+        }
+      } catch {
+        /*
+         * The receipt has already confirmed
+         * the migration. Missing or malformed
+         * display metadata does not change
+         * the onchain result.
+         */
+      }
 
       if (onConfirmed) {
         try {
           await onConfirmed();
         } catch {
-          // A refresh failure does not
-          // change the transaction result.
+          /*
+           * A state refresh failure does not
+           * change the confirmed transaction.
+           */
         }
       }
     } catch (error) {
