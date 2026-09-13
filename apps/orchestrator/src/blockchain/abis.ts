@@ -14,3 +14,7 @@ export const erc4626ReadAbi = parseAbi([
   "function previewRedeem(uint256 shares) view returns (uint256)",
   "function previewDeposit(uint256 assets) view returns (uint256)",
 ]);
+
+export const taskExecutorReadAbi = parseAbi([
+  "function usedNonces(address user, uint256 nonce) view returns (bool)",
+]);

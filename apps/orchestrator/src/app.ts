@@ -9,6 +9,10 @@ import { z } from "zod";
 import { environment } from "./config.js";
 import { databasePool } from "./database.js";
 import { TaskPreviewRepository } from "./repositories/task-preview-repository.js";
+import {
+  createMigrationPlan,
+  MigrationPlanError,
+} from "./services/migration-plan-service.js";
 import { getVaultState } from "./services/vault-state-service.js";
 
 const taskPreviewInputSchema = z.object({
@@ -37,6 +41,27 @@ const userAddressSchema = z
 const vaultStateQuerySchema = z.object({
   user: userAddressSchema,
 });
+
+const migrationPlanInputSchema = z
+  .object({
+    user: userAddressSchema,
+
+    maxLossBps: z
+      .number()
+      .int(
+        "maxLossBps must be an integer.",
+      )
+      .min(
+        0,
+        "maxLossBps must not be negative.",
+      )
+      .max(
+        1_000,
+        "maxLossBps must not exceed 1000.",
+      )
+      .default(50),
+  })
+  .strict();
 
 const TASK_PREVIEW_PIPELINE = [
   "discover-agents",
@@ -106,6 +131,72 @@ export async function buildApp() {
         request.log.error(
           { err: error },
           "Unable to read vault state.",
+        );
+
+        return reply.code(503).send({
+          code: "CHAIN_UNAVAILABLE",
+          message:
+            "The local blockchain state could not be read.",
+        });
+      }
+    },
+  );
+
+  app.post(
+    "/v1/migrations/plan",
+    async (request, reply) => {
+      const parsedInput =
+        migrationPlanInputSchema.safeParse(
+          request.body,
+        );
+
+      if (!parsedInput.success) {
+        return reply.code(400).send({
+          code:
+            "INVALID_MIGRATION_PLAN_INPUT",
+          message:
+            "The migration plan request is invalid.",
+          fields:
+            parsedInput.error.flatten()
+              .fieldErrors,
+        });
+      }
+
+      try {
+        const migrationPlan =
+          await createMigrationPlan(
+            parsedInput.data.user,
+            parsedInput.data.maxLossBps,
+          );
+
+        return reply.send({
+          migrationPlan,
+        });
+      } catch (error) {
+        if (
+          error instanceof
+          MigrationPlanError
+        ) {
+          const statusCode =
+            error.code ===
+            "INVALID_LOSS_LIMIT"
+              ? 400
+              : error.code ===
+                  "NONCE_UNAVAILABLE"
+                ? 503
+                : 409;
+
+          return reply
+            .code(statusCode)
+            .send({
+              code: error.code,
+              message: error.message,
+            });
+        }
+
+        request.log.error(
+          { err: error },
+          "Unable to create migration plan.",
         );
 
         return reply.code(503).send({
