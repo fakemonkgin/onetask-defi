@@ -52,6 +52,9 @@ export type MigrationExecutionResult = {
 const ZERO_BYTES32 =
   `0x${"0".repeat(64)}` as Hash;
 
+const MINIMUM_EXECUTION_WINDOW_SECONDS =
+  BigInt(30);
+
 function addressesEqual(
   firstAddress: string,
   secondAddress: string,
@@ -60,6 +63,48 @@ function addressesEqual(
     getAddress(firstAddress) ===
     getAddress(secondAddress)
   );
+}
+
+function getCurrentUnixTimestamp() {
+  return BigInt(
+    Math.floor(Date.now() / 1_000),
+  );
+}
+
+function assertPlanIsFresh(
+  blockTimestamp: bigint,
+  deadline: bigint,
+) {
+  const browserTimestamp =
+    getCurrentUnixTimestamp();
+
+  const effectiveTimestamp =
+    blockTimestamp >
+    browserTimestamp
+      ? blockTimestamp
+      : browserTimestamp;
+
+  if (
+    effectiveTimestamp >
+    deadline
+  ) {
+    throw new Error(
+      "TaskExecutor__PlanExpired: This migration plan has expired. Generate a new plan.",
+    );
+  }
+
+  const remainingSeconds =
+    deadline -
+    effectiveTimestamp;
+
+  if (
+    remainingSeconds <
+    MINIMUM_EXECUTION_WINDOW_SECONDS
+  ) {
+    throw new Error(
+      "PLAN_NEAR_EXPIRY: Less than 30 seconds remain. Generate a new plan before requesting wallet approval.",
+    );
+  }
 }
 
 function getExecutionErrorMessage(
@@ -77,11 +122,13 @@ function getExecutionErrorMessage(
 }
 
 export function useVaultMigrationExecution() {
-  const connection = useConnection();
+  const connection =
+    useConnection();
 
-  const publicClient = usePublicClient({
-    chainId: anvilChain.id,
-  });
+  const publicClient =
+    usePublicClient({
+      chainId: anvilChain.id,
+    });
 
   const writeContract =
     useWriteContract();
@@ -128,15 +175,22 @@ export function useVaultMigrationExecution() {
     }
 
     setPhase("idle");
+
     setApprovalTransactionHash(
       undefined,
     );
+
     setMigrationTransactionHash(
       undefined,
     );
+
     setExecutionResult(undefined);
     setErrorMessage(undefined);
-    setApprovalWasRequired(false);
+
+    setApprovalWasRequired(
+      false,
+    );
+
     writeContract.reset();
   }
 
@@ -149,15 +203,22 @@ export function useVaultMigrationExecution() {
     }
 
     setPhase("checking-plan");
+
     setApprovalTransactionHash(
       undefined,
     );
+
     setMigrationTransactionHash(
       undefined,
     );
+
     setExecutionResult(undefined);
     setErrorMessage(undefined);
-    setApprovalWasRequired(false);
+
+    setApprovalWasRequired(
+      false,
+    );
+
     writeContract.reset();
 
     try {
@@ -257,7 +318,9 @@ export function useVaultMigrationExecution() {
       }
 
       const sourceVaultAddress =
-        getAddress(plan.sourceVault);
+        getAddress(
+          plan.sourceVault,
+        );
 
       const destinationVaultAddress =
         getAddress(
@@ -269,40 +332,47 @@ export function useVaultMigrationExecution() {
           taskExecutor.address,
         );
 
-      const sourceShares = BigInt(
-        plan.sourceShares,
-      );
+      const sourceShares =
+        BigInt(plan.sourceShares);
 
-      const nonce = BigInt(
-        plan.nonce,
-      );
+      const nonce =
+        BigInt(plan.nonce);
 
-      const deadline = BigInt(
-        plan.deadline,
-      );
+      const deadline =
+        BigInt(plan.deadline);
 
       const contractPlan = {
-        user: getAddress(plan.user),
+        user:
+          getAddress(plan.user),
+
         sourceVault:
           sourceVaultAddress,
+
         destinationVault:
           destinationVaultAddress,
+
         sourceShares,
-        minAssetsReceived: BigInt(
-          plan.minAssetsReceived,
-        ),
+
+        minAssetsReceived:
+          BigInt(
+            plan.minAssetsReceived,
+          ),
+
         minDestinationShares:
           BigInt(
             plan.minDestinationShares,
           ),
+
         deadline,
         nonce,
+
         evidenceHash:
           plan.evidenceHash as Hash,
       };
 
       if (
-        sourceShares === BigInt(0)
+        sourceShares ===
+        BigInt(0)
       ) {
         throw new Error(
           "The plan contains zero source shares.",
@@ -314,21 +384,21 @@ export function useVaultMigrationExecution() {
           blockTag: "latest",
         });
 
-      if (
-        latestBlock.timestamp >
-        deadline
-      ) {
-        throw new Error(
-          "The migration plan has expired. Generate a new plan.",
-        );
-      }
+      assertPlanIsFresh(
+        latestBlock.timestamp,
+        deadline,
+      );
 
       const nonceAlreadyUsed =
         await publicClient.readContract({
           address:
             taskExecutorAddress,
+
           abi: taskExecutorAbi,
-          functionName: "usedNonces",
+
+          functionName:
+            "usedNonces",
+
           args: [
             connectedUser,
             nonce,
@@ -337,7 +407,7 @@ export function useVaultMigrationExecution() {
 
       if (nonceAlreadyUsed) {
         throw new Error(
-          "This migration nonce has already been used. Generate a new plan.",
+          "TaskExecutor__NonceAlreadyUsed: Generate a new migration plan.",
         );
       }
 
@@ -345,8 +415,12 @@ export function useVaultMigrationExecution() {
         await publicClient.readContract({
           address:
             sourceVaultAddress,
+
           abi: vaultShareTokenAbi,
-          functionName: "allowance",
+
+          functionName:
+            "allowance",
+
           args: [
             connectedUser,
             taskExecutorAddress,
@@ -357,39 +431,58 @@ export function useVaultMigrationExecution() {
         currentAllowance !==
         sourceShares
       ) {
-        setApprovalWasRequired(true);
+        setApprovalWasRequired(
+          true,
+        );
+
         setPhase(
           "simulating-approval",
         );
 
-        await publicClient.simulateContract({
-          account: connectedUser,
-          address:
-            sourceVaultAddress,
-          abi: vaultShareTokenAbi,
-          functionName: "approve",
-          args: [
-            taskExecutorAddress,
-            sourceShares,
-          ],
-        });
+        await publicClient
+          .simulateContract({
+            account:
+              connectedUser,
+
+            address:
+              sourceVaultAddress,
+
+            abi:
+              vaultShareTokenAbi,
+
+            functionName:
+              "approve",
+
+            args: [
+              taskExecutorAddress,
+              sourceShares,
+            ],
+          });
 
         setPhase(
           "awaiting-approval-signature",
         );
 
         const approvalHash =
-          await writeContract.mutateAsync({
-            chainId: anvilChain.id,
-            address:
-              sourceVaultAddress,
-            abi: vaultShareTokenAbi,
-            functionName: "approve",
-            args: [
-              taskExecutorAddress,
-              sourceShares,
-            ],
-          });
+          await writeContract
+            .mutateAsync({
+              chainId:
+                anvilChain.id,
+
+              address:
+                sourceVaultAddress,
+
+              abi:
+                vaultShareTokenAbi,
+
+              functionName:
+                "approve",
+
+              args: [
+                taskExecutorAddress,
+                sourceShares,
+              ],
+            });
 
         setApprovalTransactionHash(
           approvalHash,
@@ -402,7 +495,8 @@ export function useVaultMigrationExecution() {
         const approvalReceipt =
           await publicClient
             .waitForTransactionReceipt({
-              hash: approvalHash,
+              hash:
+                approvalHash,
             });
 
         if (
@@ -415,34 +509,58 @@ export function useVaultMigrationExecution() {
         }
       }
 
+      const blockBeforeMigration =
+        await publicClient.getBlock({
+          blockTag: "latest",
+        });
+
+      assertPlanIsFresh(
+        blockBeforeMigration.timestamp,
+        deadline,
+      );
+
       setPhase(
         "simulating-migration",
       );
 
-      await publicClient.simulateContract({
-        account: connectedUser,
-        address:
-          taskExecutorAddress,
-        abi: taskExecutorAbi,
-        functionName:
-          "executeVaultMigration",
-        args: [contractPlan],
-      });
+      await publicClient
+        .simulateContract({
+          account:
+            connectedUser,
+
+          address:
+            taskExecutorAddress,
+
+          abi:
+            taskExecutorAbi,
+
+          functionName:
+            "executeVaultMigration",
+
+          args: [contractPlan],
+        });
 
       setPhase(
         "awaiting-migration-signature",
       );
 
       const migrationHash =
-        await writeContract.mutateAsync({
-          chainId: anvilChain.id,
-          address:
-            taskExecutorAddress,
-          abi: taskExecutorAbi,
-          functionName:
-            "executeVaultMigration",
-          args: [contractPlan],
-        });
+        await writeContract
+          .mutateAsync({
+            chainId:
+              anvilChain.id,
+
+            address:
+              taskExecutorAddress,
+
+            abi:
+              taskExecutorAbi,
+
+            functionName:
+              "executeVaultMigration",
+
+            args: [contractPlan],
+          });
 
       setMigrationTransactionHash(
         migrationHash,
@@ -455,7 +573,8 @@ export function useVaultMigrationExecution() {
       const migrationReceipt =
         await publicClient
           .waitForTransactionReceipt({
-            hash: migrationHash,
+            hash:
+              migrationHash,
           });
 
       if (
@@ -469,10 +588,15 @@ export function useVaultMigrationExecution() {
 
       const migrationEvents =
         parseEventLogs({
-          abi: taskExecutorAbi,
+          abi:
+            taskExecutorAbi,
+
           eventName:
             "VaultMigrationExecuted",
-          logs: migrationReceipt.logs,
+
+          logs:
+            migrationReceipt.logs,
+
           strict: true,
         });
 
@@ -484,13 +608,16 @@ export function useVaultMigrationExecution() {
           planHash:
             migrationEvent.args
               .planHash,
+
           evidenceHash:
             migrationEvent.args
               .evidenceHash,
+
           assetsReceived:
             migrationEvent.args
               .assetsReceived
               .toString(),
+
           destinationShares:
             migrationEvent.args
               .destinationShares
@@ -510,7 +637,9 @@ export function useVaultMigrationExecution() {
       }
     } catch (error) {
       setErrorMessage(
-        getExecutionErrorMessage(error),
+        getExecutionErrorMessage(
+          error,
+        ),
       );
 
       setPhase("error");
@@ -520,10 +649,13 @@ export function useVaultMigrationExecution() {
   return {
     phase,
     isRunning,
+
     isSuccess:
       phase === "success",
+
     isError:
       phase === "error",
+
     errorMessage,
     approvalWasRequired,
     approvalTransactionHash,

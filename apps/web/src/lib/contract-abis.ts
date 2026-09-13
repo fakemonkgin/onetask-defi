@@ -45,6 +45,122 @@ export const vaultShareTokenAbi = [
 
 export const taskExecutorAbi = [
   {
+    type: "error",
+    name: "TaskExecutor__ZeroAddress",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "TaskExecutor__UnauthorizedCaller",
+    inputs: [
+      {
+        name: "caller",
+        type: "address",
+      },
+      {
+        name: "expectedUser",
+        type: "address",
+      },
+    ],
+  },
+  {
+    type: "error",
+    name: "TaskExecutor__PlanExpired",
+    inputs: [
+      {
+        name: "deadline",
+        type: "uint256",
+      },
+      {
+        name: "currentTimestamp",
+        type: "uint256",
+      },
+    ],
+  },
+  {
+    type: "error",
+    name: "TaskExecutor__NonceAlreadyUsed",
+    inputs: [
+      {
+        name: "user",
+        type: "address",
+      },
+      {
+        name: "nonce",
+        type: "uint256",
+      },
+    ],
+  },
+  {
+    type: "error",
+    name: "TaskExecutor__ZeroSourceShares",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "TaskExecutor__ZeroMinimumAssets",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name:
+      "TaskExecutor__ZeroMinimumDestinationShares",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "TaskExecutor__EmptyEvidenceHash",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "TaskExecutor__SameVault",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "TaskExecutor__AssetMismatch",
+    inputs: [
+      {
+        name: "sourceAsset",
+        type: "address",
+      },
+      {
+        name: "destinationAsset",
+        type: "address",
+      },
+    ],
+  },
+  {
+    type: "error",
+    name: "TaskExecutor__InsufficientAssets",
+    inputs: [
+      {
+        name: "assetsReceived",
+        type: "uint256",
+      },
+      {
+        name: "minimumAssets",
+        type: "uint256",
+      },
+    ],
+  },
+  {
+    type: "error",
+    name:
+      "TaskExecutor__InsufficientDestinationShares",
+    inputs: [
+      {
+        name: "sharesReceived",
+        type: "uint256",
+      },
+      {
+        name: "minimumShares",
+        type: "uint256",
+      },
+    ],
+  },
+  {
     type: "function",
     name: "usedNonces",
     stateMutability: "view",

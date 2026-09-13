@@ -12,15 +12,24 @@ import { blockchainClient } from "../blockchain/client.js";
 import { environment } from "../config.js";
 import { getVaultState } from "./vault-state-service.js";
 
-const BASIS_POINTS_DENOMINATOR = 10_000n;
-const MAX_ALLOWED_LOSS_BPS = 1_000;
-const PLAN_TTL_SECONDS = 10n * 60n;
-const EVIDENCE_VERSION = 1n;
-const NONCE_GENERATION_ATTEMPTS = 5;
+const BASIS_POINTS_DENOMINATOR =
+  10_000n;
 
-const evidenceAbiParameters = parseAbiParameters(
-  "uint256 evidenceVersion, uint256 chainId, address executor, address user, address sourceVault, address destinationVault, uint256 sourceShares, uint256 quotedAssetsReceived, uint256 quotedDestinationShares, uint256 minAssetsReceived, uint256 minDestinationShares, uint256 deadline, uint256 nonce, uint256 maxLossBps, uint256 observedBlockNumber",
-);
+const MAX_ALLOWED_LOSS_BPS =
+  1_000;
+
+const PLAN_TTL_SECONDS =
+  10n * 60n;
+
+const EVIDENCE_VERSION = 1n;
+
+const NONCE_GENERATION_ATTEMPTS =
+  5;
+
+const evidenceAbiParameters =
+  parseAbiParameters(
+    "uint256 evidenceVersion, uint256 chainId, address executor, address user, address sourceVault, address destinationVault, uint256 sourceShares, uint256 quotedAssetsReceived, uint256 quotedDestinationShares, uint256 minAssetsReceived, uint256 minDestinationShares, uint256 deadline, uint256 nonce, uint256 maxLossBps, uint256 observedBlockNumber",
+  );
 
 type MigrationPlanErrorCode =
   | "INVALID_LOSS_LIMIT"
@@ -30,11 +39,13 @@ type MigrationPlanErrorCode =
 
 export class MigrationPlanError extends Error {
   constructor(
-    public readonly code: MigrationPlanErrorCode,
+    public readonly code:
+      MigrationPlanErrorCode,
     message: string,
   ) {
     super(message);
-    this.name = "MigrationPlanError";
+    this.name =
+      "MigrationPlanError";
   }
 }
 
@@ -47,7 +58,8 @@ function calculateMinimumAfterLoss(
     BigInt(maxLossBps);
 
   const numerator =
-    quotedAmount * retainedBasisPoints;
+    quotedAmount *
+    retainedBasisPoints;
 
   return (
     numerator +
@@ -56,12 +68,29 @@ function calculateMinimumAfterLoss(
   ) / BASIS_POINTS_DENOMINATOR;
 }
 
+function getCurrentUnixTimestamp() {
+  return BigInt(
+    Math.floor(Date.now() / 1_000),
+  );
+}
+
+function selectDeadlineReferenceTimestamp(
+  blockTimestamp: bigint,
+  serverTimestamp: bigint,
+) {
+  return blockTimestamp >
+    serverTimestamp
+    ? blockTimestamp
+    : serverTimestamp;
+}
+
 async function createUnusedNonce(
   user: Address,
 ) {
   for (
     let attempt = 0;
-    attempt < NONCE_GENERATION_ATTEMPTS;
+    attempt <
+    NONCE_GENERATION_ATTEMPTS;
     attempt += 1
   ) {
     const nonce = BigInt(
@@ -71,7 +100,8 @@ async function createUnusedNonce(
     const isUsed =
       await blockchainClient.readContract({
         address:
-          environment.TASK_EXECUTOR_ADDRESS,
+          environment
+            .TASK_EXECUTOR_ADDRESS,
         abi: taskExecutorReadAbi,
         functionName: "usedNonces",
         args: [user, nonce],
@@ -95,7 +125,8 @@ export async function createMigrationPlan(
   if (
     !Number.isInteger(maxLossBps) ||
     maxLossBps < 0 ||
-    maxLossBps > MAX_ALLOWED_LOSS_BPS
+    maxLossBps >
+      MAX_ALLOWED_LOSS_BPS
   ) {
     throw new MigrationPlanError(
       "INVALID_LOSS_LIMIT",
@@ -106,12 +137,16 @@ export async function createMigrationPlan(
   const [vaultState, latestBlock] =
     await Promise.all([
       getVaultState(user),
+
       blockchainClient.getBlock({
         blockTag: "latest",
       }),
     ]);
 
-  if (!vaultState.migrationPreview.executable) {
+  if (
+    !vaultState.migrationPreview
+      .executable
+  ) {
     throw new MigrationPlanError(
       "NO_SOURCE_POSITION",
       "The user does not have source-vault shares to migrate.",
@@ -119,17 +154,21 @@ export async function createMigrationPlan(
   }
 
   const sourceShares = BigInt(
-    vaultState.migrationPreview.sourceShares,
-  );
-
-  const quotedAssetsReceived = BigInt(
-    vaultState.migrationPreview.assetsReceived,
-  );
-
-  const quotedDestinationShares = BigInt(
     vaultState.migrationPreview
-      .destinationShares,
+      .sourceShares,
   );
+
+  const quotedAssetsReceived =
+    BigInt(
+      vaultState.migrationPreview
+        .assetsReceived,
+    );
+
+  const quotedDestinationShares =
+    BigInt(
+      vaultState.migrationPreview
+        .destinationShares,
+    );
 
   if (
     quotedAssetsReceived === 0n ||
@@ -156,8 +195,17 @@ export async function createMigrationPlan(
   const nonce =
     await createUnusedNonce(user);
 
+  const serverTimestamp =
+    getCurrentUnixTimestamp();
+
+  const deadlineReferenceTimestamp =
+    selectDeadlineReferenceTimestamp(
+      latestBlock.timestamp,
+      serverTimestamp,
+    );
+
   const deadline =
-    latestBlock.timestamp +
+    deadlineReferenceTimestamp +
     PLAN_TTL_SECONDS;
 
   const evidenceHash = keccak256(
@@ -166,7 +214,8 @@ export async function createMigrationPlan(
       [
         EVIDENCE_VERSION,
         BigInt(vaultState.chainId),
-        environment.TASK_EXECUTOR_ADDRESS,
+        environment
+          .TASK_EXECUTOR_ADDRESS,
         user,
         vaultState.vaultA.address,
         vaultState.vaultB.address,
@@ -189,43 +238,59 @@ export async function createMigrationPlan(
 
     taskExecutor: {
       address:
-        environment.TASK_EXECUTOR_ADDRESS,
+        environment
+          .TASK_EXECUTOR_ADDRESS,
     },
 
     plan: {
       user,
+
       sourceVault:
         vaultState.vaultA.address,
+
       destinationVault:
         vaultState.vaultB.address,
+
       sourceShares:
         sourceShares.toString(),
+
       minAssetsReceived:
         minAssetsReceived.toString(),
+
       minDestinationShares:
         minDestinationShares.toString(),
+
       deadline:
         deadline.toString(),
+
       nonce:
         nonce.toString(),
+
       evidenceHash,
     },
 
     quote: {
       quotedAssetsReceived:
         quotedAssetsReceived.toString(),
+
       quotedDestinationShares:
         quotedDestinationShares.toString(),
+
       observedBlockNumber:
         latestBlock.number.toString(),
+
       observedBlockTimestamp:
         latestBlock.timestamp.toString(),
     },
 
     constraints: {
       maxLossBps,
+
       basisPointsDenominator:
-        Number(BASIS_POINTS_DENOMINATOR),
+        Number(
+          BASIS_POINTS_DENOMINATOR,
+        ),
+
       expiresInSeconds:
         Number(PLAN_TTL_SECONDS),
     },
@@ -233,8 +298,11 @@ export async function createMigrationPlan(
     approval: {
       token:
         vaultState.vaultA.address,
+
       spender:
-        environment.TASK_EXECUTOR_ADDRESS,
+        environment
+          .TASK_EXECUTOR_ADDRESS,
+
       amount:
         sourceShares.toString(),
     },
@@ -242,7 +310,9 @@ export async function createMigrationPlan(
     evidence: {
       schema:
         "onetask.local-vault-migration-evidence.v1",
+
       hash: evidenceHash,
+
       signedByAgent: false,
     },
   };
