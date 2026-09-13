@@ -13,7 +13,9 @@ const DEMO_USER_ADDRESS =
     .NEXT_PUBLIC_DEMO_USER_ADDRESS ??
   "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
 
-function trimFormattedUnits(value: string) {
+function trimFormattedUnits(
+  value: string,
+) {
   if (!value.includes(".")) {
     return value;
   }
@@ -28,20 +30,28 @@ function formatTokenAmount(
   decimals: number,
 ) {
   return trimFormattedUnits(
-    formatUnits(BigInt(value), decimals),
+    formatUnits(
+      BigInt(value),
+      decimals,
+    ),
   );
 }
 
-function shortenAddress(address: string) {
+function shortenAddress(
+  address: string,
+) {
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
 }
 
 export function VaultStateCard() {
-  const connection = useConnection();
+  const connection =
+    useConnection();
 
   const connectedAddress =
-    connection.status === "connected" &&
-    connection.chainId === anvilChain.id
+    connection.status ===
+      "connected" &&
+    connection.chainId ===
+      anvilChain.id
       ? connection.address
       : undefined;
 
@@ -53,22 +63,25 @@ export function VaultStateCard() {
     connectedAddress !== undefined;
 
   const hasNetworkMismatch =
-    connection.status === "connected" &&
-    connection.chainId !== anvilChain.id;
+    connection.status ===
+      "connected" &&
+    connection.chainId !==
+      anvilChain.id;
 
-  const vaultStateQuery = useQuery({
-    queryKey: [
-      "vault-state",
-      selectedUserAddress,
-    ],
-
-    queryFn: () =>
-      getVaultState(
+  const vaultStateQuery =
+    useQuery({
+      queryKey: [
+        "vault-state",
         selectedUserAddress,
-      ),
+      ],
 
-    refetchOnWindowFocus: false,
-  });
+      queryFn: () =>
+        getVaultState(
+          selectedUserAddress,
+        ),
+
+      refetchOnWindowFocus: false,
+    });
 
   const state =
     vaultStateQuery.data?.state;
@@ -334,7 +347,7 @@ export function VaultStateCard() {
                 {state.migrationPreview
                   .executable
                   ? "Position detected"
-                  : "No position"}
+                  : "No source position"}
               </span>
             </div>
 
@@ -401,14 +414,16 @@ export function VaultStateCard() {
 
           <div className="mt-6 rounded-2xl bg-zinc-100 p-5 dark:bg-zinc-900">
             <p className="text-sm font-semibold">
-              No transaction has been sent
+              Local Anvil environment only
             </p>
 
             <p className="mt-1 text-sm leading-6 text-zinc-500 dark:text-zinc-400">
-              This remains a read-only local
-              preview. No wallet signature or
-              token approval has been
-              requested.
+              This state reflects the local
+              development chain. Execution
+              controls may create Anvil
+              transactions using mock assets,
+              but must never be used with a
+              real-asset wallet.
             </p>
 
             <p className="mt-3 break-all font-mono text-xs text-zinc-500">
